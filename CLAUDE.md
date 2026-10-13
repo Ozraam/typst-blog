@@ -44,7 +44,7 @@ npm run seed         # admin/admin123456 + 2 articles (la base doit déjà exist
 ### Auth et autorisations
 - `hooks.server.ts` : session cookie → `locals.user`, assistant de premier lancement (tout redirige vers `/register` tant qu'aucun compte n'existe), garde de `/admin`, en-têtes de sécurité.
 - Les routes `/api/*` et les actions de formulaire revérifient l'accès avec `requireEditor` / `requireAdmin` (`$lib/server/guards.ts`) et, pour les articles, `canEditPost` : un auteur ne voit et ne modifie que ses propres articles, l'admin voit tout.
-- Connexion : limitation des échecs en mémoire, `safeRedirect` contre les redirections ouvertes, vérification à temps constant même pour un compte inexistant. Le flag `secure` du cookie dépend de `url.protocol`, donc de la variable `ORIGIN` derrière un proxy. Déconnexion en POST uniquement.
+- Connexion : limitation des échecs en mémoire, `safeRedirect` contre les redirections ouvertes, vérification à temps constant même pour un compte inexistant. Le flag `secure` du cookie vient de `isHttpsRequest` (`X-Forwarded-Proto` / `CF-Visitor` envoyés par Cloudflare, sinon HTTP) et non de `url.protocol`, qu'`adapter-node` suppose en HTTPS par défaut. `FORCE_HTTPS=true` redirige les visiteurs arrivés en HTTP par le proxy. Déconnexion en POST uniquement.
 - `csrf.checkOrigin` est désactivé volontairement (voir le commentaire dans `svelte.config.js`).
 
 ### Front-end
@@ -57,6 +57,6 @@ npm run seed         # admin/admin123456 + 2 articles (la base doit déjà exist
 
 ## Déploiement
 
-- Docker : `node:22-alpine` multi-stage, volume `typst_data` → `/app/data` (base, uploads, polices). Variable `ORIGIN` requise si le blog n'est pas servi en HTTPS.
+- Docker : `node:22-alpine` multi-stage, volume `typst_data` → `/app/data` (base, uploads, polices). HTTPS assuré par Cloudflare (`PROTOCOL_HEADER=x-forwarded-proto`, `FORCE_HTTPS`). Ne jamais passer `ORIGIN` vide : `adapter-node` plante au démarrage sur une valeur vide.
 - **Un push sur `main` part directement en production** : `.github/workflows/deploy.yml` lance un runner self-hosted sur le Raspberry Pi, qui fait `git reset --hard` puis `docker compose up -d --build`. Travailler sur une branche.
 - Développement local sous Node 24 : `better-sqlite3` doit rester en version ≥ 12 (la 11 plante au ramasse-miettes avec Node 24).

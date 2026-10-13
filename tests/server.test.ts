@@ -48,6 +48,14 @@ describe('auth', () => {
 		expect(auth.safeRedirect('/\\evil.example')).toBe('/admin');
 	});
 
+	it('detects HTTPS from the proxy headers', () => {
+		const req = (headers: Record<string, string>) => new Request('http://localhost/', { headers });
+		expect(auth.isHttpsRequest(req({ 'x-forwarded-proto': 'https' }))).toBe(true);
+		expect(auth.isHttpsRequest(req({ 'x-forwarded-proto': 'http' }))).toBe(false);
+		expect(auth.isHttpsRequest(req({ 'cf-visitor': '{"scheme":"https"}' }))).toBe(true);
+		expect(auth.isHttpsRequest(req({}))).toBe(false);
+	});
+
 	it('throttles repeated login failures', () => {
 		const key = '127.0.0.1|alice';
 		for (let i = 0; i < 8; i++) auth.recordLoginFailure(key);

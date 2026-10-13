@@ -8,7 +8,8 @@ import {
 	isLoginThrottled,
 	recordLoginFailure,
 	safeRedirect,
-	setSessionCookie
+	setSessionCookie,
+	isHttpsRequest
 } from '$lib/server/auth';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -41,7 +42,7 @@ export const actions: Actions = {
 		}
 
 		clearLoginFailures(throttleKey);
-		setSessionCookie(cookies, createSession(user.id), url.protocol === 'https:');
+		setSessionCookie(cookies, createSession(user.id), isHttpsRequest(request));
 		redirect(303, target);
 	}
 };
