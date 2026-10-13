@@ -1,379 +1,603 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import TagBadge from '$lib/components/TagBadge.svelte';
+	import {
+		ArrowLeft,
+		ArrowRight,
+		Check,
+		Clock,
+		Copy,
+		Download,
+		FileCode,
+		Link2,
+		ListTree,
+		LoaderCircle,
+		SquarePen,
+		TriangleAlert
+	} from '@lucide/svelte';
+	import TypstDocument from '$lib/components/TypstDocument.svelte';
 	import TableOfContents from '$lib/components/TableOfContents.svelte';
-	import { compileToSvg, downloadPdf } from '$lib/typst/compiler.client';
+	import Modal from '$lib/components/Modal.svelte';
+	import { formatDate, initials, isoDate, STATUS_LABELS } from '$lib/format';
+	import { toast } from '$lib/ui/toast.svelte';
+	import type { TocEntry } from '$lib/typst/engine';
 
-	let { data } = $props<{
-		data: {
-			post: any;
-			toc: any[];
-			readingTime: number;
-			user: any;
-			siteTitle: string;
-		};
-	}>();
+	let { data } = $props();
 
-	let svgContent = $state(data.post.rendered_svg || '');
-	let isCompiling = $state(false);
-	let isDownloadingPdf = $state(false);
-	let showSourceModal = $state(false);
-	let copySuccess = $state(false);
+	const post = $derived(data.post);
 
-	onMount(async () => {
-		// If no cached SVG was stored in DB, compile on client
-		if (!svgContent) {
-			isCompiling = true;
-			const res = await compileToSvg(data.post.content);
-			if (res.svg) {
-				svgContent = res.svg;
-			}
-			isCompiling = false;
+	// Client-side fallback when the server could not render the article
+	let clientRender = $state<{ svg: string; toc: TocEntry[] } | null>(null);
+	let renderFailed = $state(false);
+	const svg = $derived(data.svg ?? clientRender?.svg ?? null);
+	const toc = $derived(data.svg ? data.toc : (clientRender?.toc ?? []));
+
+	let documentView = $state<ReturnType<typeof TypstDocument> | null>(null);
+	let activeHeading = $state(-1);
+	let progress = $state(0);
+	let exportingPdf = $state(false);
+	let sourceOpen = $state(false);
+	let source = $state<string | null>(null);
+	let copied = $state<'link' | 'source' | null>(null);
+
+	const updated = $derived(
+		post.published_at && post.updated_at - post.published_at > 24 * 3600 * 1000 ? post.updated_at : null
+	);
+
+	onMount(() => {
+		if (!data.svg && data.fallbackContent !== null) {
+			import('$lib/typst/client')
+				.then(({ compileForWeb }) => compileForWeb(data.fallbackContent ?? ''))
+				.then((result) => {
+					if (result.svg) clientRender = { svg: result.svg, toc: result.toc };
+					else renderFailed = true;
+				})
+				.catch(() => (renderFailed = true));
 		}
 	});
 
-	async function handleDownloadPdf() {
+	function onScroll() {
+		const doc = document.documentElement;
+		const max = doc.scrollHeight - window.innerHeight;
+		progress = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+
+		if (!documentView || toc.length === 0) return;
+		const threshold = window.scrollY + 120;
+		let current = -1;
+		for (let i = 0; i < toc.length; i++) {
+			const y = documentView.pageYOf(toc[i].y);
+			if (y !== null && y <= threshold) current = i;
+		}
+		activeHeading = current;
+	}
+
+	async function fetchSource(): Promise<string> {
+		if (source !== null) return source;
+		const res = await fetch(`/posts/${post.slug}/source.typ`);
+		if (!res.ok) throw new Error('Source indisponible');
+		source = await res.text();
+		return source;
+	}
+
+	async function exportPdf() {
+		exportingPdf = true;
 		try {
-			isDownloadingPdf = true;
-			await downloadPdf(data.post.content, data.post.slug);
+			const [content, client] = await Promise.all([fetchSource(), import('$lib/typst/client')]);
+			const result = await client.compilePdf(content, post.title);
+			if (!result.pdf) throw new Error(result.diagnostics[0]?.message ?? 'Compilation impossible');
+			client.downloadBlob(result.pdf as Uint8Array<ArrayBuffer>, `${post.slug}.pdf`, 'application/pdf');
 		} catch (err) {
-			alert('Erreur lors de la génération du PDF. Vérifiez la syntaxe Typst.');
-			console.error(err);
+			toast.error(`Export PDF impossible : ${err instanceof Error ? err.message : err}`);
 		} finally {
-			isDownloadingPdf = false;
+			exportingPdf = false;
 		}
 	}
 
-	async function handleCopySource() {
+	async function openSource() {
+		sourceOpen = true;
 		try {
-			await navigator.clipboard.writeText(data.post.content);
-			copySuccess = true;
-			setTimeout(() => {
-				copySuccess = false;
-			}, 2000);
-		} catch (err) {
-			console.error('Failed to copy source:', err);
+			await fetchSource();
+		} catch {
+			toast.error('Impossible de charger la source.');
+			sourceOpen = false;
 		}
 	}
 
-	function formatDate(timestamp: number | null): string {
-		if (!timestamp) return 'Non daté';
-		return new Intl.DateTimeFormat('fr-FR', {
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		}).format(new Date(timestamp));
+	async function copy(kind: 'link' | 'source') {
+		try {
+			await navigator.clipboard.writeText(kind === 'link' ? location.href : await fetchSource());
+			copied = kind;
+			setTimeout(() => (copied = null), 1800);
+		} catch {
+			toast.error('Copie impossible dans ce navigateur.');
+		}
+	}
+
+	async function share() {
+		if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+			navigator.share({ title: post.title, url: location.href }).catch(() => {});
+		} else {
+			copy('link');
+		}
+	}
+
+	function downloadSource() {
+		import('$lib/typst/client').then(({ downloadBlob }) =>
+			downloadBlob(source ?? '', `${post.slug}.typ`, 'text/plain;charset=utf-8')
+		);
 	}
 </script>
 
+<svelte:window onscroll={onScroll} onresize={onScroll} />
+
 <svelte:head>
-	<title>{data.post.title} — {data.siteTitle}</title>
-	{#if data.post.excerpt}
-		<meta name="description" content={data.post.excerpt} />
-	{/if}
+	<title>{post.title} — {data.siteTitle}</title>
+	{#if post.excerpt}<meta name="description" content={post.excerpt} />{/if}
+	<meta property="og:title" content={post.title} />
+	<meta property="og:type" content="article" />
+	{#if post.excerpt}<meta property="og:description" content={post.excerpt} />{/if}
+	{#if post.published_at}<meta property="article:published_time" content={isoDate(post.published_at)} />{/if}
+	{#each post.tags as tag}<meta property="article:tag" content={tag} />{/each}
+	{#if post.status !== 'published'}<meta name="robots" content="noindex" />{/if}
 </svelte:head>
 
-<div class="article-page">
-	<div class="article-header">
-		<div class="meta-top">
-			<a href="/" class="back-link">← Retour aux articles</a>
-			{#if data.user && (data.user.role === 'admin' || data.user.role === 'author')}
-				<a href="/admin/posts/{data.post.id}/edit" class="btn btn-secondary btn-sm">
-					✏️ Modifier l'article
-				</a>
-			{/if}
-		</div>
+<div class="progress" style:transform="scaleX({progress})" aria-hidden="true"></div>
 
-		<h1 class="article-title">{data.post.title}</h1>
+<article class="article">
+	<header class="container article-header">
+		{#if post.status !== 'published'}
+			<div class="alert alert-warning status-banner">
+				<TriangleAlert size={16} />
+				<span>
+					<strong>{STATUS_LABELS[post.status]}</strong> —
+					{post.status === 'archived'
+						? 'cet article n’apparaît plus dans la liste mais reste accessible par son lien.'
+						: 'cet aperçu n’est visible que par vous.'}
+				</span>
+			</div>
+		{/if}
 
-		<div class="meta-bottom">
-			<div class="author-date">
-				<span class="author">{data.post.author_name || 'Auteur inconnu'}</span>
-				<span>·</span>
-				<time>{formatDate(data.post.published_at || data.post.created_at)}</time>
-				<span>·</span>
-				<span class="reading-time">{data.readingTime} min de lecture</span>
-				{#if data.post.status !== 'published'}
-					<span class="status-badge {data.post.status}">{data.post.status}</span>
-				{/if}
+		{#if post.tags.length}
+			<ul class="tags">
+				{#each post.tags as tag}
+					<li><a href="/?tag={encodeURIComponent(tag)}">{tag}</a></li>
+				{/each}
+			</ul>
+		{/if}
+
+		<h1>{post.title}</h1>
+		{#if post.excerpt}<p class="lead">{post.excerpt}</p>{/if}
+
+		<div class="byline">
+			<div class="author">
+				<span class="avatar" aria-hidden="true">{initials(post.author_name)}</span>
+				<div>
+					<span class="name">{post.author_name}</span>
+					<span class="dates">
+						<time datetime={isoDate(post.published_at ?? post.created_at)}>{formatDate(post.published_at ?? post.created_at)}</time>
+						<span aria-hidden="true">·</span>
+						<span class="reading"><Clock size={13} /> {data.readingTime} min</span>
+						{#if updated}<span aria-hidden="true">·</span><span>mis à jour le {formatDate(updated)}</span>{/if}
+					</span>
+				</div>
 			</div>
 
 			<div class="actions">
-				<button
-					type="button"
-					class="btn btn-secondary btn-sm"
-					onclick={handleDownloadPdf}
-					disabled={isDownloadingPdf}
-					title="Exporter et télécharger le PDF"
-				>
-					{#if isDownloadingPdf}
-						<span>⏳ Génération...</span>
-					{:else}
-						<span>📥 Télécharger PDF</span>
-					{/if}
+				{#if data.canEdit}
+					<a href="/admin/posts/{post.id}/edit" class="btn btn-secondary btn-sm"><SquarePen size={15} /> Modifier</a>
+				{/if}
+				<button type="button" class="btn btn-ghost btn-sm" onclick={exportPdf} disabled={exportingPdf} title="Télécharger en PDF">
+					{#if exportingPdf}<LoaderCircle size={15} class="spinner" />{:else}<Download size={15} />{/if}
+					PDF
 				</button>
-
-				<button
-					type="button"
-					class="btn btn-secondary btn-sm"
-					onclick={() => (showSourceModal = true)}
-					title="Voir le code source Typst"
-				>
-					<span>⟨/⟩ Code Typst</span>
+				<button type="button" class="btn btn-ghost btn-sm" onclick={openSource} title="Voir la source Typst">
+					<FileCode size={15} /> Source
+				</button>
+				<button type="button" class="btn btn-ghost btn-sm btn-icon" onclick={share} title="Copier le lien" aria-label="Copier le lien">
+					{#if copied === 'link'}<Check size={15} />{:else}<Link2 size={15} />{/if}
 				</button>
 			</div>
 		</div>
+	</header>
 
-		{#if data.post.tags && data.post.tags.length > 0}
-			<div class="tags">
-				{#each data.post.tags as tag}
-					<TagBadge {tag} />
-				{/each}
-			</div>
-		{/if}
-	</div>
+	<div class="layout">
+		<div class="doc-column">
+			{#if toc.length > 1}
+				<details class="toc-mobile">
+					<summary><ListTree size={16} /> Sommaire</summary>
+					<TableOfContents items={toc} active={activeHeading} onselect={(item) => documentView?.scrollToY(item.y)} />
+				</details>
+			{/if}
 
-	<!-- Content Layout: Main SVG + Sidebar TOC -->
-	<div class="article-layout">
-		<main class="article-body">
-			{#if isCompiling}
-				<div class="compiling-state">
-					<div class="spinner"></div>
-					<p>Compilation du document Typst...</p>
-				</div>
-			{:else if svgContent}
-				<div class="typst-doc-wrapper typst-content">
-					{@html svgContent}
+			{#if svg}
+				<TypstDocument {svg} bind:this={documentView} />
+			{:else if renderFailed}
+				<div class="card empty-state">
+					<div class="empty-state-icon"><TriangleAlert size={22} /></div>
+					<h3>Affichage impossible</h3>
+					<p>Le document n'a pas pu être compilé. Vous pouvez consulter sa source Typst.</p>
 				</div>
 			{:else}
-				<div class="error-state">
-					<p>Impossible d'afficher le document Typst.</p>
+				<div class="paper-skeleton" aria-busy="true" aria-label="Chargement du document">
+					<div class="skeleton" style="width: 55%; height: 1.6rem"></div>
+					<div class="skeleton" style="width: 100%"></div>
+					<div class="skeleton" style="width: 94%"></div>
+					<div class="skeleton" style="width: 97%"></div>
+					<div class="skeleton" style="width: 60%"></div>
 				</div>
 			{/if}
-		</main>
+		</div>
 
-		{#if data.toc.length > 0}
-			<aside class="article-sidebar">
-				<TableOfContents items={data.toc} />
+		{#if toc.length > 1}
+			<aside class="toc-aside" aria-label="Sommaire">
+				<div class="toc-sticky">
+					<p class="toc-title">Sommaire</p>
+					<TableOfContents items={toc} active={activeHeading} onselect={(item) => documentView?.scrollToY(item.y)} />
+				</div>
 			</aside>
 		{/if}
 	</div>
-</div>
 
-<!-- Modal Source Typst -->
-{#if showSourceModal}
-	<div class="modal-overlay" onclick={() => (showSourceModal = false)} role="presentation">
-		<div class="modal-card" onclick={(e) => e.stopPropagation()} role="dialog">
-			<div class="modal-header">
-				<h3>Code source Typst</h3>
-				<div class="modal-actions">
-					<button type="button" class="btn btn-secondary btn-sm" onclick={handleCopySource}>
-						{copySuccess ? '✓ Copié !' : '📋 Copier'}
-					</button>
-					<button type="button" class="btn-close" onclick={() => (showSourceModal = false)}>✕</button>
-				</div>
-			</div>
-			<div class="modal-body">
-				<pre><code>{data.post.content}</code></pre>
-			</div>
+	{#if data.adjacent.previous || data.adjacent.next}
+		<nav class="container adjacent" aria-label="Articles voisins">
+			{#if data.adjacent.next}
+				<a href="/posts/{data.adjacent.next.slug}" class="adjacent-link">
+					<span class="label"><ArrowLeft size={14} /> Article suivant</span>
+					<span class="title">{data.adjacent.next.title}</span>
+				</a>
+			{:else}<span></span>{/if}
+			{#if data.adjacent.previous}
+				<a href="/posts/{data.adjacent.previous.slug}" class="adjacent-link right">
+					<span class="label">Article précédent <ArrowRight size={14} /></span>
+					<span class="title">{data.adjacent.previous.title}</span>
+				</a>
+			{/if}
+		</nav>
+	{/if}
+</article>
+
+<Modal open={sourceOpen} onclose={() => (sourceOpen = false)} size="lg" labelledby="source-title">
+	<div class="source-header">
+		<h2 id="source-title"><FileCode size={18} /> Source Typst</h2>
+		<div class="source-actions">
+			<button type="button" class="btn btn-secondary btn-sm" onclick={() => copy('source')} disabled={source === null}>
+				{#if copied === 'source'}<Check size={14} /> Copié{:else}<Copy size={14} /> Copier{/if}
+			</button>
+			<button type="button" class="btn btn-secondary btn-sm" onclick={downloadSource} disabled={source === null}>
+				<Download size={14} /> .typ
+			</button>
+			<button type="button" class="btn btn-ghost btn-sm" onclick={() => (sourceOpen = false)}>Fermer</button>
 		</div>
 	</div>
-{/if}
+	<div class="source-body">
+		{#if source === null}
+			<LoaderCircle size={20} class="spinner" />
+		{:else}
+			<pre><code>{source}</code></pre>
+		{/if}
+	</div>
+</Modal>
 
 <style>
-	.article-page {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 2.5rem 1.5rem 5rem;
-		width: 100%;
+	.progress {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 2px;
+		z-index: 60;
+		background: var(--accent);
+		transform-origin: 0 0;
+		pointer-events: none;
 	}
 
 	.article-header {
-		max-width: 850px;
-		margin: 0 auto 3rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
+		max-width: 780px;
+		padding-top: clamp(2rem, 6vw, 4rem);
+		padding-bottom: 2.25rem;
 	}
 
-	.meta-top {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.back-link {
-		color: var(--text-muted);
-		font-size: 0.9rem;
-	}
-
-	.back-link:hover {
-		color: var(--accent);
-	}
-
-	.article-title {
-		font-size: 2.5rem;
-		line-height: 1.2;
-		font-weight: 800;
-		letter-spacing: -0.02em;
-		color: var(--text-primary);
-	}
-
-	.meta-bottom {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--border-color);
-	}
-
-	.author-date {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		font-size: 0.9rem;
-		color: var(--text-secondary);
-	}
-
-	.author {
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.status-badge {
-		font-size: 0.75rem;
-		padding: 0.15rem 0.5rem;
-		border-radius: 4px;
-		text-transform: uppercase;
-		font-weight: 700;
-	}
-
-	.status-badge.draft {
-		background: var(--warning-bg);
-		color: var(--warning);
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
+	.status-banner {
+		margin-bottom: 1.75rem;
 	}
 
 	.tags {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.4rem;
+		list-style: none;
+		margin-bottom: 1.1rem;
 	}
 
-	.article-layout {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 2.5rem;
+	.tags a {
+		display: inline-block;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
 	}
 
-	@media (min-width: 950px) {
-		.article-layout {
-			grid-template-columns: minmax(0, 1fr) 280px;
-		}
+	.tags a:hover {
+		background: var(--accent-soft-2);
 	}
 
-	.article-body {
-		min-width: 0;
+	h1 {
+		font-family: var(--font-serif);
+		font-size: clamp(2.1rem, 5.5vw, 3.2rem);
+		font-weight: 550;
+		line-height: 1.1;
+		letter-spacing: -0.02em;
+		text-wrap: balance;
+	}
+
+	.lead {
+		margin-top: 1rem;
+		font-size: 1.2rem;
+		line-height: 1.55;
+		color: var(--text-2);
+		text-wrap: pretty;
+	}
+
+	.byline {
 		display: flex;
-		flex-direction: column;
+		flex-wrap: wrap;
 		align-items: center;
-	}
-
-	.article-sidebar {
-		display: none;
-	}
-
-	@media (min-width: 950px) {
-		.article-sidebar {
-			display: block;
-		}
-	}
-
-	.compiling-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		color: var(--text-muted);
-		gap: 1rem;
-	}
-
-	.spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid var(--border-color);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 1.5rem;
-		backdrop-filter: blur(4px);
-	}
-
-	.modal-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-lg);
-		width: 100%;
-		max-width: 800px;
-		max-height: 85vh;
-		display: flex;
-		flex-direction: column;
-		box-shadow: var(--shadow-lg);
-	}
-
-	.modal-header {
-		padding: 1rem 1.5rem;
-		border-bottom: 1px solid var(--border-color);
-		display: flex;
 		justify-content: space-between;
-		align-items: center;
+		gap: 1rem;
+		margin-top: 2rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--border);
 	}
 
-	.modal-actions {
+	.author {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
 	}
 
-	.btn-close {
-		font-size: 1.2rem;
-		color: var(--text-muted);
+	.avatar {
+		display: grid;
+		place-items: center;
+		width: 2.4rem;
+		height: 2.4rem;
+		border-radius: 50%;
+		background: var(--accent-soft-2);
+		color: var(--accent);
+		font-weight: 650;
 	}
 
-	.modal-body {
-		padding: 1.5rem;
+	.name {
+		display: block;
+		font-weight: 600;
+		font-size: 0.9rem;
+	}
+
+	.dates {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.8125rem;
+		color: var(--text-3);
+	}
+
+	.reading {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.layout {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		justify-items: center;
+		padding-inline: clamp(0.5rem, 3vw, 2rem);
+	}
+
+	.doc-column {
+		width: 100%;
+		max-width: 760px;
+	}
+
+	.toc-aside {
+		display: none;
+	}
+
+	@media (min-width: 1240px) {
+		.layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 760px) minmax(0, 1fr);
+			column-gap: 3rem;
+		}
+
+		.doc-column {
+			grid-column: 2;
+		}
+
+		.toc-aside {
+			display: block;
+			grid-column: 3;
+			justify-self: start;
+			width: 100%;
+			max-width: 250px;
+		}
+
+		.toc-mobile {
+			display: none;
+		}
+	}
+
+	.toc-sticky {
+		position: sticky;
+		top: calc(var(--header-h) + 1.5rem);
+		max-height: calc(100vh - var(--header-h) - 3rem);
 		overflow-y: auto;
-		background: var(--bg-secondary);
 	}
 
-	.modal-body pre {
+	.toc-title {
+		margin-bottom: 0.75rem;
+		font-size: 0.72rem;
+		font-weight: 650;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-3);
+	}
+
+	.toc-mobile {
+		margin-bottom: 1.25rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+	}
+
+	.toc-mobile summary {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		list-style: none;
+	}
+
+	.toc-mobile[open] summary {
+		border-bottom: 1px solid var(--border);
+	}
+
+	.toc-mobile :global(.toc) {
+		margin: 0.75rem 1rem 1rem;
+	}
+
+	.paper-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+		padding: 3rem;
+		background: var(--surface);
+		border-radius: var(--radius-sm);
+		box-shadow: var(--paper-shadow);
+	}
+
+	.paper-skeleton .skeleton {
+		height: 0.85rem;
+	}
+
+	.adjacent {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		max-width: 820px;
+		margin-top: 3.5rem;
+	}
+
+	.adjacent-link {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		padding: 1.1rem 1.25rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface);
+		transition:
+			border-color 0.15s var(--ease),
+			box-shadow 0.15s var(--ease);
+	}
+
+	.adjacent-link:hover {
+		border-color: var(--border-strong);
+		box-shadow: var(--shadow-md);
+	}
+
+	.adjacent-link.right {
+		text-align: right;
+		align-items: flex-end;
+		grid-column: 2;
+	}
+
+	.label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.75rem;
+		color: var(--text-3);
+	}
+
+	.adjacent-link .title {
+		font-family: var(--font-serif);
+		font-size: 1.1rem;
+		font-weight: 600;
+		line-height: 1.3;
+	}
+
+	@media (max-width: 640px) {
+		/* Full-bleed document: every pixel counts for the fixed-layout render */
+		.layout {
+			padding-inline: 0;
+		}
+
+		.layout :global(.paper) {
+			border-radius: 0;
+		}
+
+		.toc-mobile {
+			margin-inline: 1rem;
+		}
+
+		.adjacent {
+			grid-template-columns: 1fr;
+		}
+
+		.adjacent-link.right {
+			grid-column: 1;
+		}
+	}
+
+	.source-header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.source-header h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1rem;
+	}
+
+	.source-actions {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.source-body {
+		display: flex;
+		justify-content: center;
+		overflow: auto;
+		background: var(--surface-2);
+		min-height: 8rem;
+		padding: 1.25rem;
+	}
+
+	.source-body pre {
+		width: 100%;
 		font-family: var(--font-mono);
-		font-size: 0.85rem;
-		line-height: 1.5;
+		font-size: 0.8125rem;
+		line-height: 1.65;
 		white-space: pre-wrap;
+		word-break: break-word;
 	}
 </style>

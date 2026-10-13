@@ -2,38 +2,36 @@ import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getMediaFilePath } from '$lib/server/media';
+import { Readable } from 'node:stream';
+import { getMediaFilePath, MEDIA_TYPES } from '$lib/server/media';
 
-const MIME_TYPES: Record<string, string> = {
-	'.png': 'image/png',
-	'.jpg': 'image/jpeg',
-	'.jpeg': 'image/jpeg',
-	'.gif': 'image/gif',
-	'.webp': 'image/webp',
-	'.svg': 'image/svg+xml',
-	'.pdf': 'application/pdf',
-	'.typ': 'text/plain; charset=utf-8',
-	'.txt': 'text/plain; charset=utf-8'
-};
+const INLINE_TYPES = /^(image\/|application\/pdf|text\/plain)/;
 
-export const GET: RequestHandler = async ({ params }) => {
-	const filename = params.filename;
-	const filePath = getMediaFilePath(filename);
+export const GET: RequestHandler = async ({ params, request }) => {
+	const filePath = getMediaFilePath(params.filename);
+	if (!filePath) error(404, 'Fichier introuvable');
 
-	if (!filePath || !fs.existsSync(filePath)) {
-		throw error(404, 'Fichier non trouvé');
+	const stat = fs.statSync(filePath);
+	const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+	const contentType = MEDIA_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+
+	const headers: Record<string, string> = {
+		'Content-Type': contentType,
+		// File names are unique and never overwritten
+		'Cache-Control': 'public, max-age=31536000, immutable',
+		ETag: etag,
+		// User uploads must never run scripts in our origin (SVG, PDF…)
+		'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+		'X-Content-Type-Options': 'nosniff'
+	};
+	if (!INLINE_TYPES.test(contentType)) {
+		headers['Content-Disposition'] = `attachment; filename="${path.basename(filePath)}"`;
 	}
 
-	const ext = path.extname(filename).toLowerCase();
-	const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-	const stat = fs.statSync(filePath);
-	const stream = fs.createReadStream(filePath);
+	if (request.headers.get('if-none-match') === etag) {
+		return new Response(null, { status: 304, headers });
+	}
 
-	return new Response(stream as any, {
-		headers: {
-			'Content-Type': contentType,
-			'Content-Length': stat.size.toString(),
-			'Cache-Control': 'public, max-age=86400'
-		}
-	});
+	headers['Content-Length'] = stat.size.toString();
+	return new Response(Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream, { headers });
 };

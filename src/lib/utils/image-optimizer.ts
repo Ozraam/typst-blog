@@ -19,15 +19,6 @@ export interface OptimizationResult {
 	savedPercent: number;
 }
 
-export function formatBytes(bytes: number, decimals = 1): string {
-	if (bytes <= 0) return '0 o';
-	const k = 1024;
-	const dm = decimals < 0 ? 0 : decimals;
-	const sizes = ['o', 'Ko', 'Mo', 'Go'];
-	const i = Math.floor(Math.log(bytes) / Math.log(k));
-	return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
-
 /**
  * Optimizes an image file in the browser before sending it over the network.
  * Preserves SVGs and GIFs (to keep vector quality and animations).

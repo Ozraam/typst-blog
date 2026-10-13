@@ -1,30 +1,23 @@
 import type { PageServerLoad } from './$types';
-import { listPublishedPosts, getAllTags } from '$lib/server/posts';
+import { listPublishedPosts, getPublicTags } from '$lib/server/posts';
+
+const PAGE_SIZE = 10;
 
 export const load: PageServerLoad = async ({ url }) => {
-	const page = Math.max(1, parseInt(url.searchParams.get('p') || '1', 10));
-	const tag = url.searchParams.get('tag') || undefined;
-	const search = url.searchParams.get('q') || undefined;
-	const limit = 10;
-	const offset = (page - 1) * limit;
+	const page = Math.max(1, parseInt(url.searchParams.get('p') ?? '1', 10) || 1);
+	const tag = url.searchParams.get('tag')?.trim() || undefined;
+	const search = url.searchParams.get('q')?.trim().slice(0, 100) || undefined;
 
-	const { posts, total } = listPublishedPosts({
-		limit,
-		offset,
-		tag,
-		search
-	});
-
-	const tags = getAllTags();
-	const totalPages = Math.max(1, Math.ceil(total / limit));
+	const { posts, total } = listPublishedPosts({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, tag, search });
+	const tags = getPublicTags();
 
 	return {
 		posts,
 		total,
 		page,
-		totalPages,
+		totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
 		tags,
-		activeTag: tag,
-		searchQuery: search || ''
+		activeTag: tag ? (tags.find((t) => t.slug === tag || t.name === tag)?.slug ?? tag) : null,
+		searchQuery: search ?? ''
 	};
 };
