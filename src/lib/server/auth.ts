@@ -157,6 +157,19 @@ export function createSession(userId: string): { sessionId: string; expiresAt: n
 	return { sessionId, expiresAt };
 }
 
+/**
+ * Whether the visitor reached the blog over HTTPS. Node only serves plain HTTP: behind Cloudflare
+ * (proxy or tunnel) or another reverse proxy, the visitor's scheme comes from the forwarded headers.
+ * Without them (direct LAN access, dev server) the connection is plain HTTP.
+ */
+export function isHttpsRequest(request: Request): boolean {
+	const forwarded = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+	if (forwarded) return forwarded === 'https';
+	const cfVisitor = request.headers.get('cf-visitor');
+	if (cfVisitor) return cfVisitor.includes('"https"');
+	return process.env.ORIGIN?.trim().startsWith('https://') ?? false;
+}
+
 export function setSessionCookie(cookies: Cookies, session: { sessionId: string; expiresAt: number }, secure: boolean) {
 	cookies.set(SESSION_COOKIE, session.sessionId, {
 		path: '/',
@@ -165,6 +178,10 @@ export function setSessionCookie(cookies: Cookies, session: { sessionId: string;
 		secure,
 		expires: new Date(session.expiresAt)
 	});
+}
+
+export function clearSessionCookie(cookies: Cookies, secure: boolean) {
+	cookies.delete(SESSION_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure });
 }
 
 export function validateSession(sessionId: string): {

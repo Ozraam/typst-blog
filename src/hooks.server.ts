@@ -1,6 +1,14 @@
 import type { Handle, ServerInit } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
-import { validateSession, hasAnyUser, purgeExpiredSessions, SESSION_COOKIE } from '$lib/server/auth';
+import { env } from '$env/dynamic/private';
+import {
+	clearSessionCookie,
+	hasAnyUser,
+	isHttpsRequest,
+	purgeExpiredSessions,
+	SESSION_COOKIE,
+	validateSession
+} from '$lib/server/auth';
 import { refreshStaleRenders } from '$lib/server/publishing';
 import { warmUpTypst } from '$lib/server/typst';
 
@@ -22,10 +30,18 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
+	const https = isHttpsRequest(event.request);
+
+	// FORCE_HTTPS: visitors arriving over plain HTTP through the proxy (Cloudflare…) are sent to HTTPS.
+	// Requests without forwarded headers (LAN, health check) are left alone.
+	if (env.FORCE_HTTPS === 'true' && event.request.headers.get('x-forwarded-proto')?.startsWith('http') && !https) {
+		redirect(308, `https://${event.url.host}${event.url.pathname}${event.url.search}`);
+	}
+
 	const sessionId = event.cookies.get(SESSION_COOKIE);
 	const { user, session } = sessionId ? validateSession(sessionId) : { user: null, session: null };
 	if (sessionId && !session) {
-		event.cookies.delete(SESSION_COOKIE, { path: '/' });
+		clearSessionCookie(event.cookies, https);
 	}
 	event.locals.user = user;
 	event.locals.session = session;
@@ -49,6 +65,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const response = await resolve(event);
 	for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
 		if (!response.headers.has(name)) response.headers.set(name, value);
+	}
+	if (https && env.FORCE_HTTPS === 'true') {
+		response.headers.set('Strict-Transport-Security', 'max-age=31536000');
 	}
 	return response;
 };

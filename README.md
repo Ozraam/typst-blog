@@ -62,7 +62,7 @@ Le blog écoute sur le port `PORT` (8088 par défaut). Tout l'état tient dans l
 
 Variables principales (voir `.env.example`) :
 
-- `ORIGIN` : URL publique du blog. **À définir si le blog n'est pas servi en HTTPS** (par exemple `http://raspberrypi.local:8088`), sinon le cookie de session est marqué `Secure` et la connexion échoue.
+- `FORCE_HTTPS=true` : derrière Cloudflare (proxy ou tunnel), redirige les visiteurs arrivés en HTTP vers HTTPS et envoie l'en-tête HSTS. Le protocole du visiteur est lu dans `X-Forwarded-Proto`. L'accès direct sur le réseau local (`http://<ip>:8088`) reste possible et n'est jamais redirigé.
 - `SITE_TITLE`, `SITE_DESCRIPTION`, `ALLOW_REGISTRATION` : valeurs initiales seulement. Elles se modifient ensuite dans *Administration › Paramètres*.
 
 Un push sur `main` déclenche le déploiement automatique sur le Raspberry Pi (`.github/workflows/deploy.yml`, runner auto-hébergé). `deploy.sh` fait la même chose à la main.

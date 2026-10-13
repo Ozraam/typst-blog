@@ -6,7 +6,8 @@ import {
 	createSession,
 	isUsernameOrEmailTaken,
 	setSessionCookie,
-	validateCredentials
+	validateCredentials,
+	isHttpsRequest
 } from '$lib/server/auth';
 import { getSettings } from '$lib/server/db';
 
@@ -19,7 +20,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies, url }) => {
+	default: async ({ request, cookies }) => {
 		const isFirstRun = !hasAnyUser();
 		if (!isFirstRun && !getSettings().allowRegistration) {
 			return fail(403, { error: 'Les inscriptions sont fermées sur ce blog.', username: '', email: '' });
@@ -42,7 +43,7 @@ export const actions: Actions = {
 
 		// The very first account administers the blog; later sign-ups are authors
 		const user = createUser({ username, email, password, role: isFirstRun ? 'admin' : 'author' });
-		setSessionCookie(cookies, createSession(user.id), url.protocol === 'https:');
+		setSessionCookie(cookies, createSession(user.id), isHttpsRequest(request));
 		redirect(303, isFirstRun ? '/admin?welcome=1' : '/admin');
 	}
 };

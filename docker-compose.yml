@@ -10,7 +10,9 @@ services:
     environment:
       - PORT=3000
       - DATA_DIR=/app/data
-      - ORIGIN=${ORIGIN:-}
+      # Behind Cloudflare: the visitor's scheme comes from X-Forwarded-Proto
+      - PROTOCOL_HEADER=x-forwarded-proto
+      - FORCE_HTTPS=${FORCE_HTTPS:-false}
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
       - SITE_TITLE=${SITE_TITLE:-Typst Blog}
       - SITE_DESCRIPTION=${SITE_DESCRIPTION:-Moteur de blog moderne propulsé par Typst et SvelteKit}
