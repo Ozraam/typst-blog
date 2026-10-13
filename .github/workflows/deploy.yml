@@ -1,0 +1,21 @@
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: self-hosted
+    steps:
+      - name: Deploy application on server
+        run: |
+          cd /mnt/ssd/apps/typst-blog
+          echo "🔄 Récupération des dernières modifications..."
+          git fetch origin main
+          git reset --hard origin/main
+          echo "🚀 Reconstruction et redémarrage des conteneurs..."
+          docker compose up -d --build
+          echo "✅ Déploiement terminé avec succès !"
