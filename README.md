@@ -1,151 +1,95 @@
-# 📄 Moteur de Blog Typst Dynamique
+# Typst Blog
 
-Plateforme de blogging moderne, dynamique et auto-hébergée permettant de rédiger, prévisualiser en direct et publier des articles directement rédigés en syntaxe **Typst** via une interface web interactive.
+Moteur de blog auto-hébergé où les articles s'écrivent en **[Typst](https://typst.app)**. La mise en page que l'auteur voit dans l'éditeur est exactement celle que reçoivent les lecteurs : formules, tableaux, notes, figures, code…
 
----
+## Fonctionnalités
 
-## ✨ Fonctionnalités Clés
+**Lecture**
+- Articles rendus en vectoriel (SVG) côté serveur : affichage instantané, sans WebAssembly pour les lecteurs.
+- Texte sélectionnable et copiable, sommaire généré à partir des titres avec suivi de lecture, liens internes Typst fonctionnels.
+- Export PDF à la demande, consultation de la source `.typ`.
+- Recherche plein texte, filtres par tag, pagination, flux RSS (`/rss.xml`) et `sitemap.xml`.
+- Thèmes clair et sombre, interface adaptée au mobile.
 
-- **✍️ Rédacteur Typst interactif (Split-Screen)** :
-  - Coloration syntaxique complète pour Typst (titres, gras, italique, mathématiques, tableaux, étiquettes, fonctions `#set`, `#image`, etc.).
-  - Raccourcis clavier usuels (`Ctrl+S` / `Cmd+S` pour enregistrer, `Ctrl+B` pour le gras, `Ctrl+I` pour l'italique, etc.).
-  - Prévisualisation en direct (*Live Preview*) avec compilation réactive vectorielle en **SVG** sans rechargement de page.
-  - Défilement synchronisé (*scroll sync*) optionnel entre le code et le rendu.
-  - Modes d'affichage commutables : Vue divisée (50/50), Éditeur seul, Prévisualisation seule.
-  - Sauvegarde automatique en continu des brouillons (*crash recovery* en local et autosave périodique sur le serveur).
+**Écriture**
+- Éditeur CodeMirror avec coloration Typst, barre d'outils et raccourcis (`Ctrl+S`, `Ctrl+B`, `Ctrl+I`, `Ctrl+E`, `Ctrl+M`).
+- Aperçu en direct compilé dans le navigateur (WebAssembly), avec le **même moteur** que le serveur.
+- Erreurs Typst soulignées dans le code, avec numéro de ligne et astuces.
+- Brouillons enregistrés automatiquement. Les articles publiés ne changent que sur « Mettre à jour ». Une copie de secours locale est conservée en cas de fermeture de l'onglet.
+- Publication refusée tant que le document ne compile pas.
+- Médiathèque : glisser-déposer, optimisation automatique des grandes images, insertion en un clic, compteur d'utilisation.
 
-- **⚡ Rendu hybride ultra-rapide (Client WASM + Server SSR)** :
-  - **Dans l'éditeur** : compilation instantanée 100% côté client via **WebAssembly** (`@myriaddreamin/typst.ts`), aucune latence réseau lors de la frappe.
-  - **À la publication** : mise en cache du SVG vectoriel en base de données pour un affichage instantané des articles publics en Server-Side Rendering (SSR), sans imposer le téléchargement du runtime WASM aux simples lecteurs.
-  - **Export PDF** : génération et téléchargement direct du PDF au rendu typographique parfait à la demande du lecteur.
+**Administration**
+- Rôles administrateur / auteur : un auteur ne gère que ses articles et ses fichiers.
+- Corbeille avec restauration, archivage, gestion des utilisateurs, paramètres du blog.
+- Assistant de première installation.
 
-- **📑 Gestion complète du cycle de vie des articles (CRUD)** :
-  - Statuts multiples : `Brouillon` (*draft*), `Publié` (*published*), `Archivé` (*archived*), `Corbeille` (*trash*).
-  - Suppression sécurisée en deux temps : mise à la corbeille (*soft-delete*) avant purge définitive irréversible.
-  - Gestion automatique des slugs d'URL avec résolution des collisions.
-  - Système de tags et catégories avec filtre en temps réel.
-  - Table des matières (TOC) dynamique générée automatiquement à partir des titres Typst (`= Titre 1`, `== Titre 2`, etc.).
+## Démarrage
 
-- **🖼️ Médiathèque intégrée** :
-  - Téléversement d'images et documents par glisser-déposer (*drag and drop*).
-  - Insertion directe du snippet Typst `#image("/uploads/...", width: 80%)` en un clic dans l'éditeur.
-
-- **🔐 Authentification et Sécurité** :
-  - Sessions sécurisées via cookies `HttpOnly` et `SameSite=Lax`.
-  - Hachage de mot de passe cryptographique avec sel aléatoire (`scrypt`).
-  - Assistant de première installation (*first-run wizard*) pour configurer le premier compte Administrateur sur base vierge.
-  - Contrôle strict des inscriptions publiques (désactivables via variable d'environnement ou les paramètres).
-
-- **📡 Flux RSS 2.0 & Déploiement Docker** :
-  - Flux RSS généré automatiquement sur `/rss.xml`.
-  - Image Docker multi-stage légère alpine avec volume persistant unique (`./data`).
-
----
-
-## 🚀 Démarrage Rapide (Développement Local)
-
-### Prérequis
-- **Node.js** v20 ou supérieur.
-- **npm** (inclus avec Node.js).
-
-### Installation et lancement
+Prérequis : Node.js 22 ou plus récent.
 
 ```bash
-# 1. Cloner le projet ou naviguer dans le dossier
-cd typst-blog
-
-# 2. Installer les dépendances
 npm install
-
-# 3. Lancer le serveur de développement
 npm run dev
 ```
 
-L'application est accessible à l'adresse [http://localhost:5173](http://localhost:5173).
+L'application est servie sur [http://localhost:5173](http://localhost:5173). Au premier lancement, l'écran de configuration crée le compte administrateur.
 
-Au premier démarrage, vous serez automatiquement redirigé vers l'écran d'initialisation pour créer le compte **Administrateur**.
-
----
-
-## 🐳 Déploiement avec Docker
-
-Un fichier `docker-compose.yml` prêt à l'emploi est fourni.
-
-### 1. Variables d'environnement
-
-Créez ou adaptez votre fichier `.env` :
-
-```env
-PORT=3000
-DATA_DIR=/app/data
-SESSION_SECRET=votre-cle-secrete-tres-longue-et-aleatoire
-ALLOW_REGISTRATION=false
-SITE_TITLE="Mon Blog Typst"
-SITE_DESCRIPTION="Réflexions et articles scientifiques rédigés en Typst"
-```
-
-### 2. Lancement du conteneur
+Pour disposer d'un compte et d'articles de démonstration (`admin` / `admin123456`), lancez l'application une première fois puis :
 
 ```bash
+npm run seed
+```
+
+### Commandes
+
+| Commande | Rôle |
+| --- | --- |
+| `npm run dev` | Serveur de développement |
+| `npm run check` | Vérification des types (svelte-check) |
+| `npm test` | Tests (Vitest), sur une base temporaire |
+| `npm run build` | Build de production dans `build/` (`node build` pour le lancer) |
+| `npm run seed` | Données de démonstration |
+
+## Déploiement (Docker)
+
+```bash
+cp .env.example .env   # puis adaptez les valeurs
 docker compose up -d --build
 ```
 
-L'application démarre sur le port spécifié (par défaut `http://localhost:3000`). Les données SQLite et les fichiers médias sont conservés dans le volume persistant Docker `typst_data`.
+Le blog écoute sur le port `PORT` (8088 par défaut). Tout l'état tient dans le volume `typst_data` : base SQLite, fichiers téléversés et polices Typst. Les polices sont téléchargées une seule fois au premier démarrage, ce qui demande un accès à Internet.
 
----
+Variables principales (voir `.env.example`) :
 
-## 📁 Structure du Projet
+- `ORIGIN` : URL publique du blog. **À définir si le blog n'est pas servi en HTTPS** (par exemple `http://raspberrypi.local:8088`), sinon le cookie de session est marqué `Secure` et la connexion échoue.
+- `SITE_TITLE`, `SITE_DESCRIPTION`, `ALLOW_REGISTRATION` : valeurs initiales seulement. Elles se modifient ensuite dans *Administration › Paramètres*.
 
-```
-typst-blog/
-├── Dockerfile                  # Construction multi-stage alpine
-├── docker-compose.yml          # Déploiement conteneurisé avec volume persistant
-├── package.json
-├── svelte.config.js            # Configuration SvelteKit (Node adapter)
-├── vite.config.ts              # Configuration Vite & WebAssembly
-├── static/
-│   └── typst/                  # Fichiers binaires WebAssembly Typst
-└── src/
-    ├── app.css                 # Système de design (thèmes clair/sombre, typographie)
-    ├── hooks.server.ts         # Middleware d'authentification et route guards
-    ├── lib/
-    │   ├── components/         # Composants réutilisables (SplitEditor, Header, TOC, etc.)
-    │   ├── server/             # Logique serveur (SQLite, Auth, Posts, Media, TOC)
-    │   └── typst/              # Compilateur WebAssembly Typst & grammaire CodeMirror
-    └── routes/
-        ├── +page.svelte        # Accueil public (liste d'articles, filtre par tags, recherche)
-        ├── posts/[slug]/       # Page de lecture d'article (SSR, TOC, export PDF)
-        ├── rss.xml/            # Flux RSS 2.0
-        ├── uploads/[filename]/ # Service sécurisé des fichiers médias
-        ├── login/ & register/  # Écrans d'authentification et first-run wizard
-        └── admin/              # Espace d'administration (Dashboard, Posts, Media, Settings)
-```
+Un push sur `main` déclenche le déploiement automatique sur le Raspberry Pi (`.github/workflows/deploy.yml`, runner auto-hébergé). `deploy.sh` fait la même chose à la main.
 
----
+## Écrire un article
 
-## 📝 Exemple de syntaxe Typst dans les articles
+Le titre, le résumé et les tags se saisissent dans l'éditeur. Le corps est du Typst standard, et ses titres forment le sommaire :
 
 ```typst
-= Introduction à la Mécanique Quantique
+Une introduction…
 
-Cet article présente les concepts fondamentaux de la mécanique quantique.
+= Première section
 
-== L'équation de Schrödinger
+La formule d'Euler : $e^(i pi) + 1 = 0$.
 
-L'équation dépendante du temps s'écrit sous la forme suivante :
+#figure(
+  image("/uploads/mon-schema-1a2b3c4d.png", width: 80%),
+  caption: [Un schéma],
+)
 
-$ i hbar (partial psi) / (partial t) = hat(H) psi $
-
-== Visualisation
-
-#image("/uploads/mon-schema.png", width: 85%)
-
-== Tableau comparatif
+== Un détail
 
 #table(
-  columns: (1fr, 2fr),
-  [Propriété], [Description],
-  [Superposition], [L'état est une combinaison linéaire de plusieurs états de base],
-  [Intrication], [Corrélation forte entre deux particules distantes]
+  columns: 2,
+  table.header[*Propriété*][*Valeur*],
+  [Superposition], [Oui],
 )
 ```
+
+Pour le web, chaque article reçoit une mise en page par défaut : page de 14 cm de large et de hauteur continue, texte en français justifié. Une règle `#set page(...)` ou `#set text(...)` dans l'article la remplace. L'export PDF utilise le format A4 standard de Typst.

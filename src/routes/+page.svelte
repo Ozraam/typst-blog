@@ -1,236 +1,269 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { ChevronLeft, ChevronRight, FileText, Search, X } from '@lucide/svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
-	import TagBadge from '$lib/components/TagBadge.svelte';
+	import { plural } from '$lib/format';
 
-	let { data } = $props<{
-		data: {
-			posts: any[];
-			total: number;
-			page: number;
-			totalPages: number;
-			tags: any[];
-			activeTag?: string;
-			searchQuery: string;
-			siteTitle: string;
-			siteDescription: string;
-			user: any;
-		};
-	}>();
+	let { data } = $props();
+
+	let query = $derived(data.searchQuery);
+	const filtered = $derived(!!data.searchQuery || !!data.activeTag);
+	const featured = $derived(!filtered && data.page === 1 && data.posts.length > 1);
+
+	function href(params: { p?: number; tag?: string | null; q?: string }) {
+		const search = new URLSearchParams();
+		const tag = params.tag === undefined ? data.activeTag : params.tag;
+		const q = params.q === undefined ? data.searchQuery : params.q;
+		if (q) search.set('q', q);
+		if (tag) search.set('tag', tag);
+		if (params.p && params.p > 1) search.set('p', String(params.p));
+		const qs = search.toString();
+		return qs ? `/?${qs}` : '/';
+	}
+
+	function submit(e: SubmitEvent) {
+		e.preventDefault();
+		goto(href({ q: query.trim(), p: 1 }), { keepFocus: true, noScroll: true });
+	}
+
+	const activeTagName = $derived(data.tags.find((t) => t.slug === data.activeTag)?.name ?? data.activeTag);
 </script>
 
 <svelte:head>
-	<title>{data.siteTitle} — {data.siteDescription}</title>
+	<title>{data.searchQuery ? `« ${data.searchQuery} » — ` : activeTagName ? `#${activeTagName} — ` : ''}{data.siteTitle}</title>
+	<meta name="description" content={data.siteDescription} />
+	<meta property="og:title" content={data.siteTitle} />
+	<meta property="og:description" content={data.siteDescription} />
+	<meta property="og:type" content="website" />
 </svelte:head>
 
-<div class="home-container">
-	<!-- Hero / Intro -->
+<div class="container home">
 	<section class="hero">
-		<h1 class="hero-title">{data.siteTitle}</h1>
-		<p class="hero-desc">{data.siteDescription}</p>
+		<h1>{data.siteTitle}</h1>
+		{#if data.siteDescription}<p>{data.siteDescription}</p>{/if}
 	</section>
 
-	<!-- Search & Filters -->
-	<section class="filter-section">
-		<form method="get" action="/" class="search-form">
-			<input
-				type="text"
-				name="q"
-				value={data.searchQuery}
-				placeholder="Rechercher un article..."
-				class="input search-input"
-			/>
-			{#if data.activeTag}
-				<input type="hidden" name="tag" value={data.activeTag} />
-			{/if}
-			<button type="submit" class="btn btn-primary">Rechercher</button>
-			{#if data.searchQuery || data.activeTag}
-				<a href="/" class="btn btn-secondary">Réinitialiser</a>
+	<section class="filters" aria-label="Filtrer les articles">
+		<form class="search" onsubmit={submit} role="search">
+			<Search size={17} />
+			<input type="search" name="q" bind:value={query} placeholder="Rechercher dans les articles…" aria-label="Rechercher dans les articles" />
+			{#if data.searchQuery}
+				<a href={href({ q: '', p: 1 })} class="clear" aria-label="Effacer la recherche" data-sveltekit-noscroll><X size={15} /></a>
 			{/if}
 		</form>
 
-		{#if data.tags.length > 0}
-			<div class="tags-cloud">
-				<a href="/" class="all-tags-btn {!data.activeTag ? 'active' : ''}">
-					Tous ({data.total})
-				</a>
+		{#if data.tags.length}
+			<div class="tags">
+				<a href={href({ tag: null, p: 1 })} class="chip" class:active={!data.activeTag} data-sveltekit-noscroll>Tous</a>
 				{#each data.tags as tag}
-					<TagBadge tag={tag.name} active={data.activeTag === tag.name} count={tag.post_count} />
+					<a
+
+						href={href({ tag: data.activeTag === tag.slug ? null : tag.slug, p: 1 })}
+						class="chip"
+						class:active={data.activeTag === tag.slug}
+						data-sveltekit-noscroll
+					>
+						{tag.name}<span class="count">{tag.post_count}</span>
+					</a>
 				{/each}
 			</div>
 		{/if}
 	</section>
 
-	<!-- Articles List -->
-	<section class="articles-section">
-		{#if data.posts.length > 0}
-			<div class="posts-list">
-				{#each data.posts as post}
-					<PostCard {post} />
-				{/each}
-			</div>
+	{#if filtered}
+		<p class="result-summary">
+			{plural(data.total, 'article')}
+			{#if data.searchQuery}pour « <strong>{data.searchQuery}</strong> »{/if}
+			{#if activeTagName}dans <strong>#{activeTagName}</strong>{/if}
+		</p>
+	{/if}
 
-			<!-- Pagination -->
-			{#if data.totalPages > 1}
-				<nav class="pagination" aria-label="Pagination">
-					{#if data.page > 1}
-						<a
-							href="/?p={data.page - 1}{data.activeTag ? `&tag=${encodeURIComponent(data.activeTag)}` : ''}{data.searchQuery ? `&q=${encodeURIComponent(data.searchQuery)}` : ''}"
-							class="btn btn-secondary btn-sm"
-						>
-							← Précédent
-						</a>
-					{/if}
-
-					<span class="page-indicator">
-						Page {data.page} sur {data.totalPages}
-					</span>
-
-					{#if data.page < data.totalPages}
-						<a
-							href="/?p={data.page + 1}{data.activeTag ? `&tag=${encodeURIComponent(data.activeTag)}` : ''}{data.searchQuery ? `&q=${encodeURIComponent(data.searchQuery)}` : ''}"
-							class="btn btn-secondary btn-sm"
-						>
-							Suivant →
-						</a>
-					{/if}
-				</nav>
-			{/if}
+	<section class="posts" aria-label="Articles">
+		{#each data.posts as post, i (post.id)}
+			<PostCard {post} featured={featured && i === 0} />
 		{:else}
-			<div class="empty-state">
-				<div class="empty-icon">📝</div>
-				<h3>Aucun article trouvé</h3>
-				<p>
-					{#if data.searchQuery || data.activeTag}
-						Aucun article ne correspond à vos critères de recherche.
-					{:else}
-						Bienvenue sur votre nouveau blog Typst ! Aucun article n'a encore été publié.
+			<div class="card empty-state">
+				<div class="empty-state-icon"><FileText size={22} /></div>
+				{#if filtered}
+					<h3>Aucun résultat</h3>
+					<p>Aucun article ne correspond à votre recherche. Essayez d'autres mots-clés.</p>
+					<a href="/" class="btn btn-secondary btn-sm">Voir tous les articles</a>
+				{:else}
+					<h3>Aucun article pour l'instant</h3>
+					<p>Les articles publiés apparaîtront ici.</p>
+					{#if data.user}
+						<a href="/admin/posts/new" class="btn btn-primary btn-sm">Écrire le premier article</a>
 					{/if}
-				</p>
-				{#if data.user}
-					<a href="/admin/posts/new" class="btn btn-primary" style="margin-top: 1rem;">
-						Rédiger le premier article
-					</a>
 				{/if}
 			</div>
-		{/if}
+		{/each}
 	</section>
+
+	{#if data.totalPages > 1}
+		<nav class="pagination" aria-label="Pagination">
+			{#if data.page > 1}
+				<a class="btn btn-secondary btn-sm" href={href({ p: data.page - 1 })} rel="prev"><ChevronLeft size={16} /> Plus récents</a>
+			{:else}
+				<span></span>
+			{/if}
+			<span class="page-indicator">Page {data.page} / {data.totalPages}</span>
+			{#if data.page < data.totalPages}
+				<a class="btn btn-secondary btn-sm" href={href({ p: data.page + 1 })} rel="next">Plus anciens <ChevronRight size={16} /></a>
+			{:else}
+				<span></span>
+			{/if}
+		</nav>
+	{/if}
 </div>
 
 <style>
-	.home-container {
-		max-width: 900px;
-		margin: 0 auto;
-		padding: 3rem 1.5rem;
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 2.5rem;
+	.home {
+		max-width: 820px;
+		padding-top: clamp(2.5rem, 7vw, 5rem);
 	}
 
-	.hero {
-		text-align: center;
-		padding: 1rem 0;
+	.hero h1 {
+		font-family: var(--font-serif);
+		font-size: clamp(2.5rem, 7vw, 3.9rem);
+		font-weight: 550;
+		letter-spacing: -0.025em;
+		line-height: 1.05;
+		text-wrap: balance;
 	}
 
-	.hero-title {
-		font-size: 2.5rem;
-		font-weight: 800;
-		letter-spacing: -0.02em;
-		color: var(--text-primary);
-		margin-bottom: 0.5rem;
-	}
-
-	.hero-desc {
+	.hero p {
+		margin-top: 1rem;
+		max-width: 36rem;
 		font-size: 1.15rem;
-		color: var(--text-secondary);
-		max-width: 600px;
-		margin: 0 auto;
+		line-height: 1.55;
+		color: var(--text-2);
+		text-wrap: pretty;
 	}
 
-	.filter-section {
+	.filters {
 		display: flex;
 		flex-direction: column;
-		gap: 1.25rem;
-		background: var(--bg-card);
-		padding: 1.25rem;
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-sm);
+		gap: 1rem;
+		margin: 2.5rem 0 1.25rem;
 	}
 
-	.search-form {
+	.search {
 		display: flex;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-	}
-
-	.search-input {
-		flex: 1;
-		min-width: 200px;
-	}
-
-	.tags-cloud {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
 		align-items: center;
+		gap: 0.6rem;
+		height: 2.9rem;
+		padding: 0 0.6rem 0 1rem;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		color: var(--text-3);
+		box-shadow: var(--shadow-sm);
+		transition:
+			border-color 0.15s var(--ease),
+			box-shadow 0.15s var(--ease);
 	}
 
-	.all-tags-btn {
-		font-size: 0.8rem;
-		font-weight: 600;
-		padding: 0.2rem 0.6rem;
-		border-radius: 9999px;
-		background: var(--bg-secondary);
-		color: var(--text-secondary);
-		border: 1px solid var(--border-color);
-	}
-
-	.all-tags-btn.active,
-	.all-tags-btn:hover {
-		background: var(--accent);
-		color: var(--accent-contrast);
+	.search:focus-within {
 		border-color: var(--accent);
+		box-shadow: var(--ring);
 	}
 
-	.posts-list {
+	.search input {
+		flex: 1;
+		min-width: 0;
+		height: 100%;
+		border: none;
+		outline: none;
+		background: none;
+		color: var(--text);
+		font-size: 0.95rem;
+	}
+
+	.search input::-webkit-search-cancel-button {
+		display: none;
+	}
+
+	.clear {
 		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
+		padding: 0.35rem;
+		border-radius: 50%;
+	}
+
+	.clear:hover {
+		background: var(--surface-2);
+		color: var(--text);
+	}
+
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		height: 1.9rem;
+		padding: 0 0.75rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		color: var(--text-2);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		transition: all 0.15s var(--ease);
+	}
+
+	.chip:hover {
+		border-color: var(--border-strong);
+		color: var(--text);
+	}
+
+	.chip.active {
+		background: var(--text);
+		border-color: var(--text);
+		color: var(--bg);
+	}
+
+	.count {
+		font-size: 0.72rem;
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.chip.active .count {
+		color: inherit;
+		opacity: 0.7;
+	}
+
+	.result-summary {
+		margin-bottom: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--text-2);
+	}
+
+	.result-summary strong {
+		color: var(--text);
+	}
+
+	.posts > :global(.empty-state) {
+		margin-top: 1rem;
 	}
 
 	.pagination {
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: space-between;
 		gap: 1rem;
-		margin-top: 2rem;
+		margin-top: 1rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--border);
 	}
 
 	.page-indicator {
-		font-size: 0.9rem;
-		color: var(--text-muted);
-	}
-
-	.empty-state {
-		text-align: center;
-		padding: 4rem 1.5rem;
-		background: var(--bg-card);
-		border: 1px dashed var(--border-color);
-		border-radius: var(--radius-lg);
-	}
-
-	.empty-icon {
-		font-size: 3rem;
-		margin-bottom: 1rem;
-	}
-
-	.empty-state h3 {
-		font-size: 1.25rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.empty-state p {
-		color: var(--text-muted);
+		font-size: 0.8125rem;
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
 	}
 </style>

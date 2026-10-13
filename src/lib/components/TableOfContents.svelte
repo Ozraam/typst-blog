@@ -1,100 +1,59 @@
 <script lang="ts">
-	import type { TocItem } from '$lib/server/toc';
+	import type { TocEntry } from '$lib/typst/engine';
 
-	let { items = [] } = $props<{ items: TocItem[] }>();
+	let {
+		items,
+		active = -1,
+		onselect
+	}: { items: TocEntry[]; active?: number; onselect: (item: TocEntry) => void } = $props();
 
-	function scrollToHeading(id: string, e: MouseEvent) {
-		e.preventDefault();
-		// Try to find element or SVG text matching anchor
-		const target = document.getElementById(id);
-		if (target) {
-			target.scrollIntoView({ behavior: 'smooth' });
-			return;
-		}
-
-		// Fallback: search for text or heading in rendered Typst
-		const headingTexts = document.querySelectorAll('.typst-content h1, .typst-content h2, .typst-content h3, .typst-content text');
-		for (const el of headingTexts) {
-			const item = items.find((i: TocItem) => i.id === id);
-			if (item && el.textContent?.trim().toLowerCase().includes(item.text.toLowerCase())) {
-				el.scrollIntoView({ behavior: 'smooth' });
-				break;
-			}
-		}
-	}
+	const minLevel = $derived(Math.min(...items.map((i) => i.level)));
 </script>
 
-{#if items.length > 0}
-	<nav class="toc" aria-label="Table des matières">
-		<h3 class="toc-title">Table des matières</h3>
-		<ul class="toc-list">
-			{#each items as item}
-				<li class="toc-item level-{item.level}">
-					<a href="#{item.id}" onclick={(e) => scrollToHeading(item.id, e)}>
-						{item.text}
-					</a>
-				</li>
-			{/each}
-		</ul>
-	</nav>
-{/if}
+<ol class="toc">
+	{#each items as item, i}
+		<li style:--depth={item.level - minLevel}>
+			<a
+				href="#section-{i}"
+				class:active={i === active}
+				aria-current={i === active ? 'location' : undefined}
+				onclick={(e) => {
+					e.preventDefault();
+					onselect(item);
+				}}
+			>
+				{item.text}
+			</a>
+		</li>
+	{/each}
+</ol>
 
 <style>
 	.toc {
-		background: var(--bg-card);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-lg);
-		padding: 1.25rem;
-		max-height: calc(100vh - 8rem);
-		overflow-y: auto;
-		position: sticky;
-		top: 2rem;
-	}
-
-	.toc-title {
-		font-size: 0.95rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--text-muted);
-		margin-bottom: 0.75rem;
-		padding-bottom: 0.5rem;
-		border-bottom: 1px solid var(--border-light);
-	}
-
-	.toc-list {
 		list-style: none;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+		border-left: 1px solid var(--border);
 	}
 
-	.toc-item a {
-		font-size: 0.85rem;
-		color: var(--text-secondary);
+	a {
 		display: block;
+		margin-left: -1px;
+		padding: 0.3rem 0 0.3rem calc(0.85rem + var(--depth) * 0.8rem);
+		border-left: 2px solid transparent;
+		font-size: 0.8125rem;
 		line-height: 1.4;
-		transition: color 0.15s ease;
+		color: var(--text-3);
+		transition:
+			color 0.15s var(--ease),
+			border-color 0.15s var(--ease);
 	}
 
-	.toc-item a:hover {
+	a:hover {
+		color: var(--text);
+	}
+
+	a.active {
 		color: var(--accent);
-	}
-
-	.level-1 {
-		font-weight: 600;
-		margin-top: 0.25rem;
-	}
-
-	.level-2 {
-		padding-left: 0.75rem;
-		border-left: 2px solid var(--border-light);
-	}
-
-	.level-3 {
-		padding-left: 1.5rem;
-		border-left: 2px solid var(--border-light);
-		font-size: 0.8rem;
-		color: var(--text-muted);
+		border-left-color: var(--accent);
+		font-weight: 550;
 	}
 </style>

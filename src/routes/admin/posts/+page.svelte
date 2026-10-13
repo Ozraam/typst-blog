@@ -1,193 +1,165 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
+	import {
+		ChevronLeft,
+		ChevronRight,
+		Eye,
+		EyeOff,
+		FileText,
+		PenLine,
+		RotateCcw,
+		Search,
+		Send,
+		SquarePen,
+		Trash,
+		X
+	} from '@lucide/svelte';
+	import PageHeader from '$lib/components/admin/PageHeader.svelte';
+	import StatusBadge from '$lib/components/admin/StatusBadge.svelte';
+	import { formatRelative, formatShortDate } from '$lib/format';
+	import { actionFeedback } from '$lib/ui/enhance';
 
-	let { data } = $props<{
-		data: {
-			posts: any[];
-			total: number;
-			counts: Record<string, number>;
-			activeStatus: string;
-			searchQuery: string;
-			page: number;
-			totalPages: number;
-		};
-	}>();
+	let { data } = $props();
 
-	function formatDate(timestamp: number): string {
-		return new Intl.DateTimeFormat('fr-FR', {
-			day: '2-digit',
-			month: 'short',
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		}).format(new Date(timestamp));
+	let query = $derived(data.searchQuery);
+	const isAdmin = $derived(data.user.role === 'admin');
+
+	const tabs = [
+		{ value: 'all', label: 'Tous' },
+		{ value: 'published', label: 'Publiés' },
+		{ value: 'draft', label: 'Brouillons' },
+		{ value: 'archived', label: 'Archivés' },
+		{ value: 'trash', label: 'Corbeille' }
+	] as const;
+
+	function href(params: { status?: string; q?: string; p?: number }) {
+		const search = new URLSearchParams();
+		const status = params.status ?? data.activeStatus;
+		const q = params.q ?? data.searchQuery;
+		if (status !== 'all') search.set('status', status);
+		if (q) search.set('q', q);
+		if (params.p && params.p > 1) search.set('p', String(params.p));
+		const qs = search.toString();
+		return `/admin/posts${qs ? `?${qs}` : ''}`;
+	}
+
+	function submitSearch(e: SubmitEvent) {
+		e.preventDefault();
+		goto(href({ q: query.trim(), p: 1 }), { keepFocus: true, noScroll: true });
 	}
 </script>
 
 <svelte:head>
-	<title>Gestion des articles — Typst Studio</title>
+	<title>Articles — {data.siteTitle}</title>
 </svelte:head>
 
-<div class="posts-manager-page">
-	<header class="page-header">
-		<div>
-			<h1 class="page-title">Articles</h1>
-			<p class="page-subtitle">Gérez vos publications, brouillons et révisions</p>
-		</div>
-		<a href="/admin/posts/new" class="btn btn-primary">
-			<span>✍️ Nouvel article</span>
-		</a>
-	</header>
+<div class="admin-page">
+	<PageHeader title="Articles" description={isAdmin ? 'Tous les articles du blog.' : 'Vos articles, brouillons et publications.'}>
+		{#snippet actions()}
+			<a href="/admin/posts/new" class="btn btn-primary"><PenLine size={15} /> Nouvel article</a>
+		{/snippet}
+	</PageHeader>
 
-	<!-- Filters & Status tabs -->
-	<div class="controls-card">
-		<nav class="status-tabs">
-			<a
-				href="/admin/posts?status=all"
-				class="status-tab {data.activeStatus === 'all' ? 'active' : ''}"
-			>
-				Tous <span class="tab-badge">{data.counts.all || 0}</span>
-			</a>
-			<a
-				href="/admin/posts?status=published"
-				class="status-tab {data.activeStatus === 'published' ? 'active' : ''}"
-			>
-				Publiés <span class="tab-badge">{data.counts.published || 0}</span>
-			</a>
-			<a
-				href="/admin/posts?status=draft"
-				class="status-tab {data.activeStatus === 'draft' ? 'active' : ''}"
-			>
-				Brouillons <span class="tab-badge">{data.counts.draft || 0}</span>
-			</a>
-			<a
-				href="/admin/posts?status=archived"
-				class="status-tab {data.activeStatus === 'archived' ? 'active' : ''}"
-			>
-				Archivés <span class="tab-badge">{data.counts.archived || 0}</span>
-			</a>
-			<a
-				href="/admin/posts?status=trash"
-				class="status-tab trash-tab {data.activeStatus === 'trash' ? 'active' : ''}"
-			>
-				Corbeille <span class="tab-badge">{data.counts.trash || 0}</span>
-			</a>
+	<div class="toolbar">
+		<nav class="tabs" aria-label="Filtrer par statut">
+			{#each tabs as tab}
+				<a
+					href={href({ status: tab.value, p: 1 })}
+					class="tab"
+					class:active={data.activeStatus === tab.value}
+					aria-current={data.activeStatus === tab.value ? 'page' : undefined}
+					data-sveltekit-noscroll
+				>
+					{tab.label}
+					<span class="count">{data.counts[tab.value]}</span>
+				</a>
+			{/each}
 		</nav>
 
-		<form method="get" action="/admin/posts" class="search-form">
-			<input type="hidden" name="status" value={data.activeStatus} />
-			<input
-				type="text"
-				name="q"
-				value={data.searchQuery}
-				placeholder="Rechercher par titre ou slug..."
-				class="input input-sm search-input"
-			/>
-			<button type="submit" class="btn btn-secondary btn-sm">Filtrer</button>
+		<form class="search" onsubmit={submitSearch} role="search">
+			<Search size={15} />
+			<input type="search" bind:value={query} placeholder="Titre ou slug…" aria-label="Rechercher un article" />
 			{#if data.searchQuery}
-				<a href="/admin/posts?status={data.activeStatus}" class="btn btn-secondary btn-sm">✕</a>
+				<a href={href({ q: '', p: 1 })} aria-label="Effacer" class="clear"><X size={14} /></a>
 			{/if}
 		</form>
 	</div>
 
-	<!-- Posts Table -->
-	<div class="table-card">
-		{#if data.posts.length > 0}
-			<div class="table-wrapper">
-				<table class="posts-table">
+	<div class="card table-card">
+		{#if data.posts.length}
+			<div class="table-scroll">
+				<table class="table posts-table">
 					<thead>
 						<tr>
 							<th>Titre</th>
 							<th>Statut</th>
-							<th>Auteur</th>
-							<th>Tags</th>
-							<th>Dernière modif.</th>
-							<th class="actions-header">Actions</th>
+							{#if isAdmin}<th>Auteur</th>{/if}
+							<th>Modifié</th>
+							<th class="actions-col"><span class="sr-only">Actions</span></th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each data.posts as post}
+						{#each data.posts as post (post.id)}
 							<tr>
-								<td class="title-cell">
-									<a href="/admin/posts/{post.id}/edit" class="post-title">
-										{post.title}
-									</a>
-									<span class="post-slug">/{post.slug}</span>
-								</td>
-
-								<td>
-									<span class="status-badge {post.status}">{post.status}</span>
-								</td>
-
-								<td>{post.author_name}</td>
-
-								<td>
-									{#if post.tags && post.tags.length > 0}
-										<div class="tags-mini">
-											{#each post.tags as tag}
-												<span class="tag-pill">#{tag}</span>
-											{/each}
-										</div>
+								<td class="title-cell" data-label="Titre">
+									{#if post.status === 'trash'}
+										<span class="title">{post.title}</span>
 									{:else}
-										<span class="empty-cell">—</span>
+										<a href="/admin/posts/{post.id}/edit" class="title">{post.title}</a>
+									{/if}
+									<span class="sub">
+										/posts/{post.slug}
+										{#if post.tags.length}· {post.tags.map((t) => `#${t}`).join(' ')}{/if}
+									</span>
+								</td>
+								<td>
+									<StatusBadge status={post.status} />
+									{#if post.status === 'published' && post.published_at}
+										<span class="sub">{formatShortDate(post.published_at)}</span>
 									{/if}
 								</td>
-
-								<td>{formatDate(post.updated_at)}</td>
-
+								{#if isAdmin}<td class="muted">{post.author_name}</td>{/if}
+								<td class="muted nowrap" title={new Date(post.updated_at).toLocaleString('fr-FR')}>{formatRelative(post.updated_at)}</td>
 								<td>
-									<div class="actions-group">
-										{#if post.status !== 'trash'}
-											<a href="/admin/posts/{post.id}/edit" class="btn btn-secondary btn-sm">
-												Éditer
-											</a>
-
-											{#if post.status === 'published'}
-												<a
-													href="/posts/{post.slug}"
-													target="_blank"
-													class="btn btn-secondary btn-sm"
-													title="Ouvrir dans un nouvel onglet"
+									<div class="row-actions">
+										{#if post.status === 'trash'}
+											<form method="post" action="?/restore" use:enhance={actionFeedback()}>
+												<input type="hidden" name="id" value={post.id} />
+												<button class="btn btn-ghost btn-sm" title="Restaurer en brouillon"><RotateCcw size={15} /> Restaurer</button>
+											</form>
+											{#if isAdmin}
+												<form
+													method="post"
+													action="?/deletePermanent"
+													use:enhance={actionFeedback({
+														title: 'Supprimer définitivement ?',
+														message: `« ${post.title} » sera effacé pour toujours. Cette action est irréversible.`,
+														confirmLabel: 'Supprimer',
+														danger: true
+													})}
 												>
-													👁
-												</a>
+													<input type="hidden" name="id" value={post.id} />
+													<button class="btn btn-danger-ghost btn-sm" title="Supprimer définitivement"><Trash size={15} /> Supprimer</button>
+												</form>
 											{/if}
-
-											<!-- Trash form -->
-											<form method="post" action="?/trash" use:enhance>
-												<input type="hidden" name="id" value={post.id} />
-												<button
-													type="submit"
-													class="btn btn-secondary btn-sm trash-btn"
-													title="Mettre à la corbeille"
-												>
-													🗑️
-												</button>
-											</form>
 										{:else}
-											<!-- Restore from trash -->
-											<form method="post" action="?/restore" use:enhance>
+											<a href="/admin/posts/{post.id}/edit" class="btn btn-ghost btn-sm btn-icon" title="Modifier" aria-label="Modifier"><SquarePen size={15} /></a>
+											<a href="/posts/{post.slug}" class="btn btn-ghost btn-sm btn-icon" title={post.status === 'published' ? 'Voir en ligne' : 'Aperçu'} aria-label="Voir" target="_blank" rel="noopener"><Eye size={15} /></a>
+											{#if post.status === 'published'}
+												<form method="post" action="?/unpublish" use:enhance={actionFeedback({ title: 'Dépublier cet article ?', message: 'Il redeviendra un brouillon et ne sera plus visible publiquement.', confirmLabel: 'Dépublier' })}>
+													<input type="hidden" name="id" value={post.id} />
+													<button class="btn btn-ghost btn-sm btn-icon" title="Dépublier" aria-label="Dépublier"><EyeOff size={15} /></button>
+												</form>
+											{:else}
+												<form method="post" action="?/publish" use:enhance={actionFeedback()}>
+													<input type="hidden" name="id" value={post.id} />
+													<button class="btn btn-ghost btn-sm btn-icon" title="Publier" aria-label="Publier"><Send size={15} /></button>
+												</form>
+											{/if}
+											<form method="post" action="?/trash" use:enhance={actionFeedback()}>
 												<input type="hidden" name="id" value={post.id} />
-												<button type="submit" class="btn btn-secondary btn-sm">
-													Restaurer
-												</button>
-											</form>
-
-											<!-- Permanent Purge -->
-											<form
-												method="post"
-												action="?/deletePermanent"
-												use:enhance
-												onsubmit={(e) => {
-													if (!confirm('Supprimer définitivement cet article ? Cette action est irréversible.')) {
-														e.preventDefault();
-													}
-												}}
-											>
-												<input type="hidden" name="id" value={post.id} />
-												<button type="submit" class="btn btn-danger btn-sm">
-													Purger
-												</button>
+												<button class="btn btn-danger-ghost btn-sm btn-icon" title="Mettre à la corbeille" aria-label="Mettre à la corbeille"><Trash size={15} /></button>
 											</form>
 										{/if}
 									</div>
@@ -199,224 +171,241 @@
 			</div>
 		{:else}
 			<div class="empty-state">
-				<p>Aucun article trouvé dans cette catégorie.</p>
+				<div class="empty-state-icon"><FileText size={20} /></div>
+				{#if data.searchQuery}
+					<h3>Aucun résultat</h3>
+					<p>Aucun article ne correspond à « {data.searchQuery} ».</p>
+				{:else if data.activeStatus === 'trash'}
+					<h3>La corbeille est vide</h3>
+					<p>Les articles supprimés apparaîtront ici avant leur suppression définitive.</p>
+				{:else}
+					<h3>Aucun article ici</h3>
+					<p>Commencez par rédiger un article : il sera enregistré comme brouillon.</p>
+					<a href="/admin/posts/new" class="btn btn-primary btn-sm">Nouvel article</a>
+				{/if}
 			</div>
 		{/if}
 	</div>
+
+	{#if data.totalPages > 1}
+		<nav class="pagination" aria-label="Pagination">
+			<a class="btn btn-secondary btn-sm" class:disabled={data.page <= 1} href={href({ p: data.page - 1 })} aria-disabled={data.page <= 1}><ChevronLeft size={15} /> Précédent</a>
+			<span class="muted">Page {data.page} / {data.totalPages} · {data.total} articles</span>
+			<a class="btn btn-secondary btn-sm" class:disabled={data.page >= data.totalPages} href={href({ p: data.page + 1 })} aria-disabled={data.page >= data.totalPages}>Suivant <ChevronRight size={15} /></a>
+		</nav>
+	{/if}
 </div>
 
 <style>
-	.posts-manager-page {
-		padding: 2rem;
-		max-width: 1200px;
-		width: 100%;
+	.toolbar {
 		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.page-header {
-		display: flex;
-		justify-content: space-between;
+		flex-wrap: wrap;
 		align-items: center;
-		flex-wrap: wrap;
-		gap: 1rem;
-	}
-
-	.page-title {
-		font-size: 1.8rem;
-		font-weight: 700;
-	}
-
-	.page-subtitle {
-		color: var(--text-muted);
-		font-size: 0.95rem;
-	}
-
-	.controls-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-lg);
-		padding: 0.8rem 1.25rem;
-		display: flex;
 		justify-content: space-between;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 1rem;
+		gap: 0.75rem;
+		margin-bottom: 1rem;
 	}
 
-	.status-tabs {
+	.tabs {
 		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
+		gap: 0.15rem;
+		padding: 0.2rem;
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
+		overflow-x: auto;
+		max-width: 100%;
+		scrollbar-width: none;
 	}
 
-	.status-tab {
+	.tab {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0.4rem 0.75rem;
-		border-radius: var(--radius-md);
-		font-size: 0.85rem;
-		font-weight: 500;
-		color: var(--text-secondary);
+		height: 2rem;
+		padding: 0 0.75rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.8125rem;
+		font-weight: 550;
+		color: var(--text-2);
+		white-space: nowrap;
 	}
 
-	.status-tab:hover {
-		background: var(--bg-secondary);
-		color: var(--text-primary);
+	.tab:hover {
+		color: var(--text);
 	}
 
-	.status-tab.active {
-		background: var(--accent);
-		color: var(--accent-contrast);
-	}
-
-	.tab-badge {
-		font-size: 0.75rem;
-		background: rgba(0, 0, 0, 0.1);
-		padding: 0.1rem 0.4rem;
-		border-radius: 9999px;
-	}
-
-	.status-tab.active .tab-badge {
-		background: rgba(255, 255, 255, 0.25);
-	}
-
-	.search-form {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.search-input {
-		width: 220px;
-	}
-
-	.input-sm {
-		padding: 0.35rem 0.6rem;
-		font-size: 0.85rem;
-	}
-
-	.table-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-lg);
+	.tab.active {
+		background: var(--surface);
+		color: var(--text);
 		box-shadow: var(--shadow-sm);
-		overflow: hidden;
 	}
 
-	.table-wrapper {
+	.count {
+		font-size: 0.72rem;
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.search {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 2.3rem;
+		width: min(280px, 100%);
+		padding: 0 0.5rem 0 0.75rem;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		color: var(--text-3);
+	}
+
+	.search:focus-within {
+		border-color: var(--accent);
+		box-shadow: var(--ring);
+	}
+
+	.search input {
+		flex: 1;
+		min-width: 0;
+		border: none;
+		outline: none;
+		background: none;
+		font-size: 0.85rem;
+		color: var(--text);
+	}
+
+	.search input::-webkit-search-cancel-button {
+		display: none;
+	}
+
+	.clear {
+		display: flex;
+		padding: 0.25rem;
+		border-radius: 50%;
+	}
+
+	.table-scroll {
 		overflow-x: auto;
 	}
 
-	.posts-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.9rem;
-	}
-
-	.posts-table th {
-		text-align: left;
-		padding: 0.85rem 1rem;
-		background: var(--bg-secondary);
-		border-bottom: 1px solid var(--border-color);
-		color: var(--text-muted);
-		font-weight: 600;
-	}
-
-	.posts-table td {
-		padding: 0.9rem 1rem;
-		border-bottom: 1px solid var(--border-light);
-	}
-
 	.title-cell {
-		display: flex;
-		flex-direction: column;
-		gap: 0.2rem;
+		min-width: 240px;
 	}
 
-	.post-title {
+	.title {
+		display: block;
 		font-weight: 600;
-		color: var(--text-primary);
+		color: var(--text);
 	}
 
-	.post-title:hover {
+	a.title:hover {
 		color: var(--accent);
 	}
 
-	.post-slug {
+	.sub {
+		display: block;
+		margin-top: 0.15rem;
 		font-size: 0.75rem;
-		color: var(--text-muted);
+		color: var(--text-3);
+		font-family: var(--font-mono);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 420px;
+	}
+
+	td .sub {
+		font-family: inherit;
+	}
+
+	.title-cell .sub {
 		font-family: var(--font-mono);
 	}
 
-	.status-badge {
-		display: inline-block;
-		padding: 0.15rem 0.5rem;
-		border-radius: 9999px;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: capitalize;
+	.nowrap {
+		white-space: nowrap;
 	}
 
-	.status-badge.published {
-		background: var(--success-bg);
-		color: var(--success);
+	.actions-col {
+		width: 1%;
 	}
 
-	.status-badge.draft {
-		background: var(--warning-bg);
-		color: var(--warning);
-	}
-
-	.status-badge.archived {
-		background: var(--bg-secondary);
-		color: var(--text-muted);
-	}
-
-	.status-badge.trash {
-		background: var(--danger-bg);
-		color: var(--danger);
-	}
-
-	.tags-mini {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.3rem;
-	}
-
-	.tag-pill {
-		font-size: 0.75rem;
-		background: var(--bg-secondary);
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
-		color: var(--text-secondary);
-	}
-
-	.empty-cell {
-		color: var(--text-muted);
-	}
-
-	.actions-header {
-		text-align: right;
-	}
-
-	.actions-group {
+	.row-actions {
 		display: flex;
 		justify-content: flex-end;
-		gap: 0.4rem;
+		gap: 0.1rem;
+	}
+
+	/* Cards instead of a table on small screens */
+	@media (max-width: 720px) {
+		.posts-table thead {
+			display: none;
+		}
+
+		.posts-table tbody tr {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 0.4rem 0.9rem;
+			padding: 0.85rem 1rem;
+			border-bottom: 1px solid var(--border);
+		}
+
+		.posts-table tbody tr:last-child {
+			border-bottom: none;
+		}
+
+		.posts-table td {
+			padding: 0;
+			border: none;
+		}
+
+		.posts-table .title-cell {
+			flex-basis: 100%;
+			min-width: 0;
+		}
+
+		.posts-table td:not(.title-cell):not(:last-child) {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+			font-size: 0.8rem;
+		}
+
+		.posts-table td .sub {
+			display: none;
+		}
+
+		.posts-table .title-cell .sub {
+			display: block;
+			max-width: 100%;
+		}
+
+		.posts-table td:last-child {
+			flex-basis: 100%;
+		}
+
+		.row-actions {
+			justify-content: flex-start;
+			margin-left: -0.4rem;
+		}
+
+		.table-scroll {
+			overflow: visible;
+		}
+	}
+
+	.pagination {
+		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-top: 1rem;
+		font-size: 0.8125rem;
 	}
 
-	.trash-btn:hover {
-		color: var(--danger);
-		border-color: var(--danger);
-	}
-
-	.empty-state {
-		text-align: center;
-		padding: 4rem;
-		color: var(--text-muted);
+	.pagination .disabled {
+		pointer-events: none;
+		opacity: 0.45;
 	}
 </style>

@@ -1,72 +1,77 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { LayoutDashboard, Rss, Search, X } from '@lucide/svelte';
+	import Logo from './Logo.svelte';
+	import ThemeToggle from './ThemeToggle.svelte';
 
-	let { siteTitle = 'Typst Blog', user = null } = $props<{
-		siteTitle?: string;
-		user?: { id: string; username: string; role: string } | null;
-	}>();
+	let {
+		siteTitle,
+		user
+	}: {
+		siteTitle: string;
+		user: { username: string; role: string } | null;
+	} = $props();
 
-	let theme = $state('light');
+	let scrolled = $state(false);
+	let searchOpen = $state(false);
+	let query = $state('');
+	let searchInput = $state<HTMLInputElement | null>(null);
 
-	onMount(() => {
-		const savedTheme = localStorage.getItem('theme');
-		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-		theme = savedTheme || (prefersDark ? 'dark' : 'light');
-		document.documentElement.setAttribute('data-theme', theme);
-	});
+	async function openSearch() {
+		query = page.url.searchParams.get('q') ?? '';
+		searchOpen = true;
+		await Promise.resolve();
+		searchInput?.focus();
+	}
 
-	function toggleTheme() {
-		theme = theme === 'light' ? 'dark' : 'light';
-		document.documentElement.setAttribute('data-theme', theme);
-		localStorage.setItem('theme', theme);
+	function submitSearch(e: SubmitEvent) {
+		e.preventDefault();
+		searchOpen = false;
+		goto(query.trim() ? `/?q=${encodeURIComponent(query.trim())}` : '/');
 	}
 </script>
 
-<header class="header">
-	<div class="header-inner">
-		<div class="brand">
-			<a href="/" class="brand-link">
-				<span class="brand-icon">📄</span>
-				<span class="brand-title">{siteTitle}</span>
-			</a>
-		</div>
+<svelte:window onscroll={() => (scrolled = window.scrollY > 8)} />
 
-		<nav class="nav">
-			<a href="/" class="nav-link">Accueil</a>
-			<a href="/rss.xml" class="nav-link rss-link" title="Flux RSS" target="_blank" rel="noopener">
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M4 11a9 9 0 0 1 9 9" />
-					<path d="M4 4a16 16 0 0 1 16 16" />
-					<circle cx="5" cy="19" r="1" />
-				</svg>
-				<span>RSS</span>
-			</a>
+<header class="header" class:scrolled>
+	<div class="container header-inner">
+		<a href="/" class="brand" aria-label="{siteTitle}, accueil">
+			<Logo size={28} />
+			<span class="brand-title">{siteTitle}</span>
+		</a>
 
-			<button type="button" class="theme-btn" onclick={toggleTheme} aria-label="Changer de thème">
-				{#if theme === 'dark'}
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="5" />
-						<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-					</svg>
-				{:else}
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-					</svg>
-				{/if}
-			</button>
+		<nav class="actions" aria-label="Navigation principale">
+			{#if searchOpen}
+				<form class="search" onsubmit={submitSearch} role="search">
+					<Search size={16} />
+					<input
+						bind:this={searchInput}
+						bind:value={query}
+						type="search"
+						placeholder="Rechercher un article…"
+						aria-label="Rechercher un article"
+						onkeydown={(e) => e.key === 'Escape' && (searchOpen = false)}
+					/>
+					<button type="button" class="close" onclick={() => (searchOpen = false)} aria-label="Fermer la recherche">
+						<X size={16} />
+					</button>
+				</form>
+			{:else}
+				<button type="button" class="btn btn-ghost btn-icon" onclick={openSearch} aria-label="Rechercher" title="Rechercher">
+					<Search size={18} />
+				</button>
+			{/if}
+
+			<a href="/rss.xml" class="btn btn-ghost btn-icon hide-sm" aria-label="Flux RSS" title="Flux RSS">
+				<Rss size={18} />
+			</a>
+			<ThemeToggle />
 
 			{#if user}
-				<a href="/admin" class="btn btn-primary btn-sm">
-					<span>Admin</span>
-					<span class="user-pill">{user.username}</span>
-				</a>
-			{:else}
-				<a href="/login" class="nav-link login-link" title="Connexion">
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-						<polyline points="10 17 15 12 10 7" />
-						<line x1="15" y1="12" x2="3" y2="12" />
-					</svg>
+				<a href="/admin" class="btn btn-secondary btn-sm dashboard-link">
+					<LayoutDashboard size={15} />
+					<span class="hide-sm">Tableau de bord</span>
 				</a>
 			{/if}
 		</nav>
@@ -75,77 +80,104 @@
 
 <style>
 	.header {
-		border-bottom: 1px solid var(--border-color);
-		background-color: var(--bg-card);
 		position: sticky;
 		top: 0;
 		z-index: 50;
-		backdrop-filter: blur(8px);
+		height: var(--header-h);
+		background: color-mix(in srgb, var(--bg) 82%, transparent);
+		backdrop-filter: saturate(1.6) blur(14px);
+		-webkit-backdrop-filter: saturate(1.6) blur(14px);
+		border-bottom: 1px solid transparent;
+		transition: border-color 0.2s var(--ease);
+	}
+
+	.header.scrolled {
+		border-bottom-color: var(--border);
 	}
 
 	.header-inner {
-		max-width: 1100px;
-		margin: 0 auto;
-		padding: 0.8rem 1.5rem;
+		height: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 1rem;
 	}
 
-	.brand-link {
+	.brand {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		color: var(--text-primary);
-		font-weight: 700;
-		font-size: 1.2rem;
+		gap: 0.65rem;
+		min-width: 0;
+	}
+
+	.brand-title {
+		font-family: var(--font-serif);
+		font-size: 1.3rem;
+		font-weight: 600;
 		letter-spacing: -0.01em;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
-	.brand-link:hover {
-		color: var(--accent);
-	}
-
-	.nav {
+	.actions {
 		display: flex;
 		align-items: center;
-		gap: 1.25rem;
+		gap: 0.15rem;
 	}
 
-	.nav-link {
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-		font-weight: 500;
+	.dashboard-link {
+		margin-left: 0.5rem;
+	}
+
+	.search {
 		display: flex;
 		align-items: center;
-		gap: 0.3rem;
+		gap: 0.45rem;
+		height: 2.25rem;
+		padding: 0 0.35rem 0 0.7rem;
+		border: 1px solid var(--accent);
+		box-shadow: var(--ring);
+		border-radius: 999px;
+		background: var(--surface);
+		color: var(--text-3);
+		width: min(300px, 52vw);
 	}
 
-	.nav-link:hover {
-		color: var(--accent);
+	.search input {
+		flex: 1;
+		min-width: 0;
+		border: none;
+		outline: none;
+		background: none;
+		font-size: 0.875rem;
+		color: var(--text);
 	}
 
-	.theme-btn {
-		color: var(--text-secondary);
+	.search input::-webkit-search-cancel-button {
+		display: none;
+	}
+
+	.close {
 		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.4rem;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-color);
-		background: var(--bg-secondary);
+		padding: 0.3rem;
+		border-radius: 50%;
+		color: var(--text-3);
 	}
 
-	.theme-btn:hover {
-		color: var(--accent);
-		border-color: var(--accent);
+	.close:hover {
+		background: var(--surface-2);
+		color: var(--text);
 	}
 
-	.user-pill {
-		font-size: 0.75rem;
-		opacity: 0.85;
-		background: rgba(255, 255, 255, 0.2);
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
+	@media (max-width: 640px) {
+		.hide-sm {
+			display: none;
+		}
+
+		.dashboard-link {
+			width: 1.9rem;
+			padding: 0;
+		}
 	}
 </style>

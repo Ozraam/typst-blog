@@ -1,43 +1,54 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, ServerInit } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
-import { validateSession, destroySession, hasAnyUser } from '$lib/server/auth';
+import { validateSession, hasAnyUser, purgeExpiredSessions, SESSION_COOKIE } from '$lib/server/auth';
+import { refreshStaleRenders } from '$lib/server/publishing';
+import { warmUpTypst } from '$lib/server/typst';
+
+export const init: ServerInit = async () => {
+	purgeExpiredSessions();
+	setInterval(purgeExpiredSessions, 6 * 60 * 60 * 1000).unref();
+
+	// Prepare the Typst compiler and re-render outdated articles without delaying startup
+	void warmUpTypst()
+		.then(refreshStaleRenders)
+		.catch((err) => console.error('[typst] warm-up failed:', err));
+};
+
+const SECURITY_HEADERS: Record<string, string> = {
+	'X-Content-Type-Options': 'nosniff',
+	'X-Frame-Options': 'SAMEORIGIN',
+	'Referrer-Policy': 'strict-origin-when-cross-origin',
+	'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+};
 
 export const handle: Handle = async ({ event, resolve }) => {
-	const sessionId = event.cookies.get('session_id');
-
-	if (sessionId) {
-		const { user, session } = validateSession(sessionId);
-		if (user && session) {
-			event.locals.user = user;
-			event.locals.session = session;
-		} else {
-			event.cookies.delete('session_id', { path: '/' });
-			event.locals.user = null;
-			event.locals.session = null;
-		}
-	} else {
-		event.locals.user = null;
-		event.locals.session = null;
+	const sessionId = event.cookies.get(SESSION_COOKIE);
+	const { user, session } = sessionId ? validateSession(sessionId) : { user: null, session: null };
+	if (sessionId && !session) {
+		event.cookies.delete(SESSION_COOKIE, { path: '/' });
 	}
+	event.locals.user = user;
+	event.locals.session = session;
 
 	const path = event.url.pathname;
 
-	// First-run wizard check: if database has zero users, guide user to /register
-	const usersExist = hasAnyUser();
-	if (!usersExist && !path.startsWith('/register') && !path.startsWith('/api') && !path.startsWith('/uploads')) {
-		throw redirect(303, '/register?setup=1');
+	// First-run wizard: until an account exists, everything leads to the setup screen
+	if (!hasAnyUser() && !/^\/(register|api|uploads|typst)(\/|$)/.test(path) && !path.startsWith('/_app')) {
+		redirect(303, '/register');
 	}
 
-	// Protect /admin routes
-	if (path.startsWith('/admin')) {
-		if (!event.locals.user) {
-			throw redirect(303, `/login?redirect=${encodeURIComponent(path)}`);
+	if (path === '/admin' || path.startsWith('/admin/')) {
+		if (!user) {
+			redirect(303, `/login?redirect=${encodeURIComponent(path + event.url.search)}`);
 		}
-		if (event.locals.user.role !== 'admin' && event.locals.user.role !== 'author') {
-			throw redirect(303, '/');
+		if (user.role !== 'admin' && user.role !== 'author') {
+			redirect(303, '/');
 		}
 	}
 
 	const response = await resolve(event);
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+		if (!response.headers.has(name)) response.headers.set(name, value);
+	}
 	return response;
 };

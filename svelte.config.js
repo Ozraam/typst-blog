@@ -10,6 +10,8 @@ const config = {
 			precompress: false
 		}),
 		csrf: {
+			// Disabled because the public origin depends on the reverse proxy setup (ORIGIN may be unset).
+			// Session cookies are SameSite=Lax, which already blocks cross-site form posts.
 			checkOrigin: false
 		}
 	}

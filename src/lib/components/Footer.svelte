@@ -1,60 +1,99 @@
 <script lang="ts">
-	let { siteTitle = 'Typst Blog' } = $props<{ siteTitle?: string }>();
-	const currentYear = new Date().getFullYear();
+	import Logo from './Logo.svelte';
+
+	let {
+		siteTitle,
+		siteDescription,
+		user
+	}: { siteTitle: string; siteDescription: string; user: { username: string } | null } = $props();
+
+	const year = new Date().getFullYear();
 </script>
 
 <footer class="footer">
-	<div class="footer-inner">
-		<div class="copy">
-			<p>© {currentYear} {siteTitle} — Rédigé et compilé avec <a href="https://typst.app" target="_blank" rel="noopener">Typst</a> & <a href="https://svelte.dev" target="_blank" rel="noopener">SvelteKit</a>.</p>
+	<div class="container footer-inner">
+		<div class="about">
+			<a href="/" class="brand">
+				<Logo size={22} />
+				<span>{siteTitle}</span>
+			</a>
+			{#if siteDescription}<p>{siteDescription}</p>{/if}
 		</div>
-		<div class="links">
+
+		<nav class="links" aria-label="Liens de pied de page">
+			<a href="/">Articles</a>
 			<a href="/rss.xml">Flux RSS</a>
-			<span>·</span>
-			<a href="/login">Administration</a>
-		</div>
+			{#if user}
+				<a href="/admin">Administration</a>
+			{:else}
+				<a href="/login">Connexion</a>
+			{/if}
+		</nav>
+	</div>
+	<div class="container legal">
+		<span>© {year} {siteTitle}</span>
+		<span>Composé avec <a href="https://typst.app" target="_blank" rel="noopener noreferrer">Typst</a></span>
 	</div>
 </footer>
 
 <style>
 	.footer {
-		margin-top: auto;
-		border-top: 1px solid var(--border-color);
-		background-color: var(--bg-card);
-		color: var(--text-muted);
-		font-size: 0.85rem;
-		padding: 2rem 1.5rem;
+		margin-top: 5rem;
+		border-top: 1px solid var(--border);
+		background: var(--surface);
+		font-size: 0.875rem;
+		color: var(--text-2);
 	}
 
 	.footer-inner {
-		max-width: 1100px;
-		margin: 0 auto;
 		display: flex;
-		flex-direction: column;
-		align-items: center;
+		flex-wrap: wrap;
 		justify-content: space-between;
-		gap: 0.75rem;
-		text-align: center;
+		gap: 2rem;
+		padding-block: 2.5rem 1.75rem;
 	}
 
-	@media (min-width: 640px) {
-		.footer-inner {
-			flex-direction: row;
-			text-align: left;
-		}
+	.about {
+		max-width: 28rem;
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		font-family: var(--font-serif);
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text);
+		margin-bottom: 0.5rem;
 	}
 
 	.links {
 		display: flex;
-		align-items: center;
-		gap: 0.6rem;
+		flex-wrap: wrap;
+		gap: 0.4rem 1.5rem;
+		align-items: flex-start;
 	}
 
-	.links a {
-		color: var(--text-secondary);
-	}
-
-	.links a:hover {
+	.links a:hover,
+	.legal a:hover {
 		color: var(--accent);
+	}
+
+	.legal {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding-block: 1.1rem 1.5rem;
+		border-top: 1px solid var(--border);
+		font-size: 0.8rem;
+		color: var(--text-3);
+	}
+
+	.legal a {
+		color: var(--text-2);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 </style>

@@ -12,74 +12,112 @@ export interface MediaItem {
 	url: string;
 	created_at: number;
 	uploader_id: string;
+	uploader_name?: string;
+	usage_count?: number;
 }
 
-export function saveUploadedFile(
-	file: File,
-	uploaderId: string
-): Promise<MediaItem> {
-	return new Promise(async (resolve, reject) => {
-		try {
-			const id = crypto.randomUUID();
-			const ext = path.extname(file.name) || '.bin';
-			const base = path.basename(file.name, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-			const filename = `${Date.now()}-${base}${ext}`.toLowerCase();
-			const filePath = path.join(UPLOADS_DIR, filename);
+export const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
 
-			const buffer = Buffer.from(await file.arrayBuffer());
-			fs.writeFileSync(filePath, buffer);
+/** Extensions accepted for upload, with the Content-Type used to serve them. */
+export const MEDIA_TYPES: Record<string, string> = {
+	'.png': 'image/png',
+	'.jpg': 'image/jpeg',
+	'.jpeg': 'image/jpeg',
+	'.gif': 'image/gif',
+	'.webp': 'image/webp',
+	'.svg': 'image/svg+xml',
+	'.pdf': 'application/pdf',
+	'.csv': 'text/csv; charset=utf-8',
+	'.json': 'application/json; charset=utf-8',
+	'.yaml': 'text/yaml; charset=utf-8',
+	'.yml': 'text/yaml; charset=utf-8',
+	'.txt': 'text/plain; charset=utf-8',
+	'.bib': 'text/plain; charset=utf-8',
+	'.typ': 'text/plain; charset=utf-8'
+};
 
-			const url = `/uploads/${filename}`;
-			const now = Date.now();
+export class MediaError extends Error {}
 
-			db.prepare(
-				`INSERT INTO media (id, filename, original_name, mime_type, size, url, created_at, uploader_id)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-			).run(id, filename, file.name, file.type || 'application/octet-stream', file.size, url, now, uploaderId);
+export async function saveUploadedFile(file: File, uploaderId: string): Promise<MediaItem> {
+	const ext = path.extname(file.name).toLowerCase();
+	const mimeType = MEDIA_TYPES[ext];
+	if (!mimeType) {
+		throw new MediaError(`Type de fichier non pris en charge (${ext || 'sans extension'}).`);
+	}
+	if (file.size === 0) throw new MediaError('Le fichier est vide.');
+	if (file.size > MAX_UPLOAD_SIZE) throw new MediaError('Le fichier dépasse la taille maximale autorisée (25 Mo).');
 
-			resolve({
-				id,
-				filename,
-				original_name: file.name,
-				mime_type: file.type || 'application/octet-stream',
-				size: file.size,
-				url,
-				created_at: now,
-				uploader_id: uploaderId
-			});
-		} catch (err) {
-			reject(err);
-		}
-	});
+	const base =
+		path
+			.basename(file.name, path.extname(file.name))
+			.normalize('NFD')
+			.replace(/[̀-ͯ]/g, '')
+			.replace(/[^a-zA-Z0-9_-]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.toLowerCase()
+			.slice(0, 60) || 'fichier';
+	const filename = `${base}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+
+	fs.writeFileSync(path.join(UPLOADS_DIR, filename), Buffer.from(await file.arrayBuffer()));
+
+	const item: MediaItem = {
+		id: crypto.randomUUID(),
+		filename,
+		original_name: file.name,
+		mime_type: mimeType.split(';')[0],
+		size: file.size,
+		url: `/uploads/${filename}`,
+		created_at: Date.now(),
+		uploader_id: uploaderId
+	};
+
+	db.prepare(
+		`INSERT INTO media (id, filename, original_name, mime_type, size, url, created_at, uploader_id)
+		 VALUES (@id, @filename, @original_name, @mime_type, @size, @url, @created_at, @uploader_id)`
+	).run(item);
+
+	return item;
 }
 
 export function listMedia(): MediaItem[] {
-	return db.prepare('SELECT * FROM media ORDER BY created_at DESC').all() as MediaItem[];
+	const items = db
+		.prepare(
+			`SELECT m.*, u.username AS uploader_name
+			 FROM media m LEFT JOIN users u ON u.id = m.uploader_id
+			 ORDER BY m.created_at DESC`
+		)
+		.all() as MediaItem[];
+
+	// Count articles (outside the trash) referencing each file
+	const contents = db.prepare("SELECT content FROM posts WHERE status != 'trash'").all() as { content: string }[];
+	for (const item of items) {
+		item.usage_count = contents.filter((p) => p.content.includes(item.url)).length;
+	}
+	return items;
+}
+
+export function getMedia(id: string): MediaItem | null {
+	return (db.prepare('SELECT * FROM media WHERE id = ?').get(id) as MediaItem | undefined) ?? null;
 }
 
 export function deleteMedia(id: string): boolean {
-	const item = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as MediaItem | undefined;
+	const item = getMedia(id);
 	if (!item) return false;
 
-	const filePath = path.join(UPLOADS_DIR, item.filename);
-	if (fs.existsSync(filePath)) {
-		try {
-			fs.unlinkSync(filePath);
-		} catch (e) {
-			console.error('Failed to remove file from disk:', e);
-		}
+	const filePath = path.join(UPLOADS_DIR, path.basename(item.filename));
+	try {
+		fs.rmSync(filePath, { force: true });
+	} catch (e) {
+		console.error('Failed to remove file from disk:', e);
 	}
 
-	const info = db.prepare('DELETE FROM media WHERE id = ?').run(id);
-	return info.changes > 0;
+	return db.prepare('DELETE FROM media WHERE id = ?').run(id).changes > 0;
 }
 
+/** Resolves an upload by file name, refusing anything outside the uploads directory. */
 export function getMediaFilePath(filename: string): string | null {
-	// Sanitize to prevent path traversal
 	const safeFilename = path.basename(filename);
+	if (!safeFilename || safeFilename.startsWith('.')) return null;
 	const filePath = path.join(UPLOADS_DIR, safeFilename);
-	if (fs.existsSync(filePath)) {
-		return filePath;
-	}
-	return null;
+	return fs.existsSync(filePath) && fs.statSync(filePath).isFile() ? filePath : null;
 }
